@@ -1,0 +1,14 @@
+
+> anticue@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.39.98.83:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 409ms
+ GET / 200 in 780ms (compile: 618ms, proxy.ts: 4ms, render: 159ms)
+ GET / 200 in 32ms (compile: 3ms, proxy.ts: 4ms, render: 25ms)
+ GET / 200 in 25ms (compile: 1389µs, proxy.ts: 3ms, render: 20ms)

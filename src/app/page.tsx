@@ -49,7 +49,7 @@ export default function Home() {
           Speech therapy for every Canadian kid — no waitlist required.
         </p>
         <a
-          href="/api/auth/login"
+          href="/auth/login?returnTo=/Parent&connection=google-oauth2"
           className="inline-block px-8 py-4 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-lg shadow-purple-500/50 transition-all duration-200 hover:shadow-purple-500/70 hover:scale-105"
         >
           Sign in with Google
