@@ -26,11 +26,15 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
+    console.log('POST /api/profile - user:', user.userId);
     const body = await request.json();
+    console.log('POST /api/profile - body:', body);
     const profile = body as ChildProfile;
     await saveChildProfile(user.userId, profile);
+    console.log('POST /api/profile - saved successfully');
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
+    console.error('POST /api/profile - error:', error);
     return NextResponse.json(
       { error: 'Failed to save profile' },
       { status: 500 }
