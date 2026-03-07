@@ -64,7 +64,7 @@ export default function OnboardingPage() {
         throw new Error('Failed to save profile');
       }
 
-      router.push('/kid');
+      router.push('/Parent');
     } catch (err) {
       setError('Something went wrong. Please try again.');
       setIsSubmitting(false);
