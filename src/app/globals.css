@@ -1,283 +1,41 @@
-/* globals.css — ArtiCue global styles, dark cosmic theme + keyframe animations */
-
 @import "tailwindcss";
 
-/* ── Custom CSS Variables ─────────────────────────────────────────── */
 :root {
-  --bg-deep: #0f0c29;
-  --bg-mid: #302b63;
-  --bg-light: #24243e;
-  --accent: #7C3AED;
-  --accent-light: #a78bfa;
-  --gold: #F59E0B;
-  --gold-light: #FDE68A;
-  --white: #FFFFFF;
+  --background: #ffffff;
+  --foreground: #171717;
 }
 
-/* ── Base ─────────────────────────────────────────────────────────── */
-html,
-body {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-  background-attachment: fixed;
-  color: #ffffff;
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
-  overscroll-behavior: none;
-}
-
-/* ── Keyframes ────────────────────────────────────────────────────── */
-
-/* Nova idle — gentle breathe/pulse */
-@keyframes nova-idle {
-
-  0%,
-  100% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 12px #7C3AED88);
-  }
-
-  50% {
-    transform: scale(1.07);
-    filter: drop-shadow(0 0 24px #7C3AEDcc);
-  }
-}
-
-/* Nova celebrating — bounce */
-@keyframes nova-bounce {
-
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-
-  30% {
-    transform: translateY(-28px) scale(1.1);
-  }
-
-  60% {
-    transform: translateY(-10px) scale(1.05);
-  }
-}
-
-/* Nova thinking — gentle side tilt */
-@keyframes nova-think {
-
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-
-  25% {
-    transform: rotate(-10deg);
-  }
-
-  75% {
-    transform: rotate(10deg);
-  }
-}
-
-/* Nova encouraging — warm glow pulse */
-@keyframes nova-glow {
-
-  0%,
-  100% {
-    filter: drop-shadow(0 0 16px #7C3AED) brightness(1);
-  }
-
-  50% {
-    filter: drop-shadow(0 0 40px #a78bfa) brightness(1.2);
-  }
-}
-
-/* Celebration ring expand */
-@keyframes ring-expand {
-  0% {
-    transform: scale(0.6);
-    opacity: 0.8;
-  }
-
-  100% {
-    transform: scale(2.5);
-    opacity: 0;
-  }
-}
-
-/* Word card fade-slide in */
-@keyframes fade-slide-in {
-  0% {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Floating +XP text */
-@keyframes float-up {
-  0% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-
-  80% {
-    opacity: 1;
-    transform: translateY(-48px) scale(1.2);
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateY(-64px) scale(1);
-  }
-}
-
-/* Confetti fall */
-@keyframes confetti-fall {
-  0% {
-    transform: translateY(-60px) rotate(0deg);
-    opacity: 1;
-  }
-
-  100% {
-    transform: translateY(110vh) rotate(720deg);
-    opacity: 0;
-  }
-}
-
-/* Waveform bar dance */
-@keyframes wave-bar {
-
-  0%,
-  100% {
-    transform: scaleY(0.15);
-  }
-
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-/* Mic recording ring pulse */
-@keyframes mic-ring {
-
-  0%,
-  100% {
-    box-shadow: 0 0 0 0px #fff8, 0 0 0 8px #7C3AED66;
-  }
-
-  50% {
-    box-shadow: 0 0 0 8px #fff4, 0 0 0 20px #7C3AED33;
-  }
-}
-
-/* Streak pulse */
-@keyframes streak-pulse {
-
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.12);
-  }
-}
-
-/* Session summary slide up */
-@keyframes slide-up {
-  0% {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-/* Mouth diagram fade in */
-@keyframes fade-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Dot progress fill */
-@keyframes dot-fill {
-  0% {
-    transform: scale(0.7);
-  }
-
-  60% {
-    transform: scale(1.3);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
-@keyframes shake {
-
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-
-  15% {
-    transform: translateX(-6px);
-  }
-
-  30% {
-    transform: translateX(6px);
-  }
-
-  45% {
-    transform: translateX(-5px);
-  }
-
-  60% {
-    transform: translateX(5px);
-  }
-
-  75% {
-    transform: translateX(-3px);
-  }
-
-  90% {
-    transform: translateX(3px);
-  }
-}
-
-/* ── Tailwind v4 Theme Extensions ─────────────────────────────────── */
 @theme inline {
-  --color-background: var(--bg-deep);
-  --color-foreground: #ffffff;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
 
-  /* Animation durations */
-  --animate-nova-idle: nova-idle 3s ease-in-out infinite;
-  --animate-nova-bounce: nova-bounce 0.7s ease-in-out infinite;
-  --animate-nova-think: nova-think 2s ease-in-out infinite;
-  --animate-nova-glow: nova-glow 2s ease-in-out infinite;
-  --animate-ring-expand: ring-expand 1s ease-out forwards;
-  --animate-fade-slide-in: fade-slide-in 0.4s ease-out forwards;
-  --animate-float-up: float-up 1.2s ease-out forwards;
-  --animate-confetti-fall: confetti-fall linear forwards;
-  --animate-wave-bar: wave-bar ease-in-out infinite;
-  --animate-mic-ring: mic-ring 1.2s ease-in-out infinite;
-  --animate-streak-pulse: streak-pulse 2s ease-in-out infinite;
-  --animate-slide-up: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  --animate-fade-in: fade-in 0.3s ease-out forwards;
-  --animate-dot-fill: dot-fill 0.4s ease-out forwards;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
 }

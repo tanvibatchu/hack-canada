@@ -1,7 +1,8 @@
-// layout.tsx — Root layout for ArtiCue. Sets metadata, fonts, and global styles.
-
+// Root layout component
+// Wraps the entire app with Auth0 Auth0Provider for authentication
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Auth0Provider } from '@auth0/nextjs-auth0/client';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,9 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ArtiCue — Speech Practice",
-  description:
-    "ArtiCue helps Canadian kids with speech impediments practice phonemes in a fun, game-like environment guided by Nova.",
+  title: "ArtiCue - Speech Therapy for Canadian Kids",
+  description: "Speech therapy for every Canadian kid — no waitlist required.",
 };
 
 export default function RootLayout({
@@ -28,9 +28,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <Auth0Provider>{children}</Auth0Provider>
       </body>
     </html>
   );

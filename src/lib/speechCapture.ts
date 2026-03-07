@@ -1,44 +1,103 @@
-// speechCapture.ts — Stub for Web Speech API voice capture.
-// The backend team will wire up real SpeechRecognition here.
-// Do NOT add browser SpeechRecognition logic here directly.
-
-type OnResultFn = (transcript: string, confidence: number) => void;
-type OnErrorFn = (error: string) => void;
-
-let _stopHandle: ReturnType<typeof setTimeout> | null = null;
-
 /**
- * startListening — begins capturing the child's speech.
- * Calls onResult with a transcript when speech is detected.
- *
- * STUB: after 2 seconds, fires a mock transcript of the target word.
- * Replace with real SpeechRecognition (lang = "en-CA", maxAlternatives = 3).
+ * Web Speech API wrapper for capturing child speech (en-CA).
+ * Import: startListening, stopListening
  */
-export function startListening(
-    onResult: OnResultFn,
-    onError: OnErrorFn,
-    mockWord?: string  // used by the stub to return a believable transcript
-): void {
-    console.log("[speechCapture stub] startListening — will fire mock transcript in 2s");
 
-    _stopHandle = setTimeout(() => {
-        // Mock: ~60% chance of saying the word correctly
-        const correct = Math.random() > 0.4;
-        const transcript = correct ? (mockWord ?? "rabbit") : "wabbit";
-        console.log("[speechCapture stub] transcript:", transcript);
-        onResult(transcript, correct ? 0.92 : 0.6);
-    }, 2000);
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
+  }
+}
+
+export interface SpeechRecognitionInstance {
+  start(): void;
+  stop(): void;
+  abort(): void;
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+export interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+
+export interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message?: string;
+}
+
+export type SpeechRecognition = SpeechRecognitionInstance;
+
+function getSpeechRecognition(): new () => SpeechRecognitionInstance {
+  if (typeof window === "undefined") {
+    throw new Error("Speech recognition is only available in the browser");
+  }
+  const Klass = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  if (!Klass) {
+    throw new Error("SpeechRecognition is not supported in this browser");
+  }
+  return Klass;
 }
 
 /**
- * stopListening — cancels active speech recognition.
- *
- * STUB: clears the mock timeout.
+ * Starts listening for speech and invokes onResult with the best transcript and confidence.
+ * Returns the recognition instance so the caller can stop it.
+ * lang: en-CA, interimResults: false, maxAlternatives: 3.
  */
-export function stopListening(): void {
-    if (_stopHandle !== null) {
-        clearTimeout(_stopHandle);
-        _stopHandle = null;
-        console.log("[speechCapture stub] stopListening");
+export function startListening(
+  onResult: (transcript: string, confidence: number) => void,
+  onError: (error: string) => void
+): SpeechRecognition {
+  try {
+    const Recognition = getSpeechRecognition();
+    const recognition = new Recognition();
+    recognition.lang = "en-CA";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 3;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const result = event.results[event.resultIndex];
+      const item = result.isFinal ? result[0] : result[result.length - 1];
+      const transcript = (item?.transcript ?? "").trim();
+      const confidence = typeof item?.confidence === "number" ? item.confidence : 0;
+      if (transcript) {
+        onResult(transcript, confidence);
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      const msg = event.message ?? event.error ?? "Speech recognition error";
+      onError(String(msg));
+    };
+
+    recognition.start();
+    return recognition;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onError(message);
+    throw err;
+  }
+}
+
+/**
+ * Stops the given recognition instance.
+ */
+export function stopListening(recognition: SpeechRecognition): void {
+  try {
+    recognition.stop();
+  } catch {
+    try {
+      recognition.abort();
+    } catch {
+      // ignore
     }
+  }
 }

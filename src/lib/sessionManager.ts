@@ -1,88 +1,82 @@
-// sessionManager.ts — Stub for Firebase Firestore session tracking.
-// The backend team will replace these with real Firestore read/write helpers.
-// Do NOT add Firebase logic here directly.
+/**
+ * In-memory session management: start/record/end sessions, compute XP and streaks.
+ * Import: startSession, recordAttempt, endSession, calculateStreak
+ */
 
-export type SessionData = {
-    sessionId: string;
-    userId: string;
-    sound: string;
-    startedAt: Date;
-};
+import type { Attempt, Session, SessionData } from "@/types";
 
-export type AttemptData = {
-    word: string;
-    transcript: string;
-    score: number;
-    correct: boolean;
-    substitution: string | null;
-};
-
-export type SessionSummaryData = {
-    sessionId: string;
-    totalAttempts: number;
-    correctAttempts: number;
-    averageAccuracy: number;
-    xpEarned: number;
-    durationSeconds: number;
-};
-
-let _sessionStart: Date | null = null;
+const XP_PER_CORRECT = 10;
 
 /**
- * startSession — initializes a new practice session in Firestore.
- *
- * STUB: logs and returns a mock session object.
+ * Starts a new in-progress session for the given user and target sound.
  */
-export async function startSession(
-    userId: string,
-    sound: string
-): Promise<SessionData> {
-    _sessionStart = new Date();
-    console.log("[sessionManager stub] startSession:", { userId, sound });
-    return {
-        sessionId: `mock-session-${Date.now()}`,
-        userId,
-        sound,
-        startedAt: _sessionStart,
-    };
+export function startSession(userId: string, sound: string): Session {
+  return {
+    userId,
+    sound,
+    startTime: Date.now(),
+    attempts: [],
+  };
 }
 
 /**
- * recordAttempt — saves one word attempt to the current session in Firestore.
- *
- * STUB: logs the attempt data.
+ * Records an attempt into the session and returns the updated session.
  */
-export async function recordAttempt(
-    sessionId: string,
-    attempt: AttemptData
-): Promise<void> {
-    console.log("[sessionManager stub] recordAttempt:", { sessionId, attempt });
+export function recordAttempt(session: Session, attempt: Attempt): Session {
+  return {
+    ...session,
+    attempts: [...session.attempts, attempt],
+  };
 }
 
 /**
- * endSession — finalizes the session and writes summary to Firestore.
- *
- * STUB: logs and returns a mock summary.
+ * Ends the session, computes averageAccuracy and XP earned.
+ * Persist sessionData and xpEarned on your backend; this layer only computes.
  */
 export async function endSession(
-    sessionId: string,
-    attempts: AttemptData[]
-): Promise<SessionSummaryData> {
-    const correct = attempts.filter((a) => a.correct).length;
-    const accuracy = attempts.length > 0 ? Math.round((correct / attempts.length) * 100) : 0;
-    const duration = _sessionStart
-        ? Math.round((Date.now() - _sessionStart.getTime()) / 1000)
-        : 0;
+  session: Session,
+  _userId: string
+): Promise<{ xpEarned: number; sessionData: SessionData }> {
+  const durationMs =
+    new Date().getTime() - new Date(session.startTime).getTime();
+  const durationSeconds = Math.round(durationMs / 1000);
+  const attempts = session.attempts;
+  const averageAccuracy =
+    attempts.length > 0
+      ? attempts.reduce((sum, a) => sum + a.score, 0) / attempts.length
+      : 0;
+  const correctCount = attempts.filter((a) => a.correct).length;
+  const xpEarned = correctCount * XP_PER_CORRECT;
 
-    const summary: SessionSummaryData = {
-        sessionId,
-        totalAttempts: attempts.length,
-        correctAttempts: correct,
-        averageAccuracy: accuracy,
-        xpEarned: correct * 10,
-        durationSeconds: duration,
-    };
+  const sessionData: SessionData = {
+    date: new Date().toISOString().slice(0, 10),
+    durationSeconds,
+    targetSound: session.sound,
+    attempts,
+    averageAccuracy: Math.round(averageAccuracy * 100) / 100,
+  };
 
-    console.log("[sessionManager stub] endSession:", summary);
-    return summary;
+  return { xpEarned, sessionData };
+}
+
+/**
+ * Returns the current consecutive-day streak from past sessions (by date).
+ */
+export function calculateStreak(sessions: SessionData[]): number {
+  if (sessions.length === 0) return 0;
+  const sortedDates = [...new Set(sessions.map((s) => s.date))].sort(
+    (a, b) => (b > a ? 1 : -1)
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  let streak = 0;
+  let cursor = 0;
+  let expected = today;
+  while (cursor < sortedDates.length && sortedDates[cursor] === expected) {
+    streak++;
+    cursor++;
+    const next = new Date(expected);
+    next.setDate(next.getDate() - 1);
+    expected = next.toISOString().slice(0, 10);
+  }
+  return streak;
 }

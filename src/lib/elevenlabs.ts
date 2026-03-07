@@ -1,33 +1,80 @@
-// elevenlabs.ts — Stub for ElevenLabs text-to-speech (Nova's voice).
-// The backend team will replace this with real ElevenLabs API calls.
-// Do NOT add ElevenLabs API logic here directly.
-
 /**
- * speakAsNova — converts text to Nova's voice and plays it.
- *
- * STUB: logs the text and resolves immediately.
- * Replace with real ElevenLabs TTS + AudioBuffer playback when backend is ready.
+ * Client-side ElevenLabs TTS: speaks text via Nova voice and plays in browser using AudioContext.
+ * Calls the /api/speak route (server-side) to avoid exposing API keys.
+ * Import: speakAsNova, demonstrateWord
  */
-export async function speakAsNova(text: string): Promise<void> {
-    console.log("[elevenlabs stub] Nova says:", text);
-    // Simulate TTS duration so the rest of the UI can gate on this promise
-    await new Promise((r) => setTimeout(r, 800));
+
+const SPEAK_API = "/api/speak";
+
+function getAudioContext(): AudioContext {
+  if (typeof window === "undefined") {
+    throw new Error("speakAsNova and demonstrateWord must run in the browser");
+  }
+  return new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
 }
 
 /**
- * demonstrateWord — Nova demonstrates the target word slowly, then at normal speed.
- * Stretches the target sound first (e.g. "r-r-rabbit"), then says it normally.
- *
- * STUB: logs and resolves with a simulated delay.
+ * Fetches audio from /api/speak and plays it in the browser via AudioContext.
+ * Voice settings (stability 0.7, similarity_boost 0.8, style 0.3) are applied server-side.
+ */
+export async function speakAsNova(text: string, speed = 1): Promise<void> {
+  try {
+    const res = await fetch(SPEAK_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, speed }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Speak API error (${res.status}): ${errText}`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    const ctx = getAudioContext();
+    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const source = ctx.createBufferSource();
+    source.buffer = decoded;
+    source.connect(ctx.destination);
+    source.start(0);
+    await new Promise<void>((resolve) => {
+      source.onended = () => resolve();
+      const timeout = setTimeout(resolve, (decoded.duration + 0.5) * 1000);
+      source.addEventListener("ended", () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Builds a slow pronunciation hint: repeats target sound letters with pauses, then the word.
+ * E.g. for "rabbit" and "r" -> "r ... r ... rabbit".
+ */
+function buildSlowPhrase(word: string, targetSound: string): string {
+  const upper = targetSound.toUpperCase();
+  const lower = targetSound.toLowerCase();
+  const letters = upper === lower ? [targetSound] : [lower, upper];
+  const repeated = letters.map((l) => `${l} ...`).join(" ");
+  return `${repeated} ${word}`.trim();
+}
+
+/**
+ * Speaks the word slowly first (repeating target sound with pauses), waits 800ms, then speaks normally.
  */
 export async function demonstrateWord(
-    word: string,
-    targetSound: string
+  word: string,
+  targetSound: string
 ): Promise<void> {
-    console.log("[elevenlabs stub] demonstrateWord:", word, "sound:", targetSound);
-    // Slow version
-    await speakAsNova(`${targetSound}-${targetSound}-${word}`);
-    await new Promise((r) => setTimeout(r, 300));
-    // Normal speed
-    await speakAsNova(word);
+  try {
+    const slowPhrase = buildSlowPhrase(word, targetSound);
+    await speakAsNova(slowPhrase, 0.7);
+    await delay(800);
+    await speakAsNova(word, 1);
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
 }
