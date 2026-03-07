@@ -1,13 +1,16 @@
 /**
  * Shared types for ArtiCue speech therapy app.
  * Import: ChildProfile, SessionData, Attempt, Session, PhonemeResult,
- * FluencyResult, PredictionResult, WordBankEntry, etc.
+ * FluencyResult, PredictionResult, WordBankEntry, SoundWordBank, WordBanksMap
  */
 
 export interface ChildProfile {
-  id?: string;
+  name: string;
   age: number;
-  name?: string;
+  targetSounds: string[];
+  streak: number;
+  lastSessionDate: string;
+  totalXP: number;
 }
 
 export interface Attempt {
@@ -19,7 +22,7 @@ export interface Attempt {
 }
 
 export interface SessionData {
-  date: string; // ISO date string
+  date: string;
   durationSeconds: number;
   targetSound: string;
   attempts: Attempt[];
@@ -29,7 +32,7 @@ export interface SessionData {
 export interface Session {
   userId: string;
   sound: string;
-  startedAt: string; // ISO timestamp
+  startTime: number;
   attempts: Attempt[];
 }
 
@@ -68,5 +71,4 @@ export interface SoundWordBank {
   final: WordBankEntry[];
 }
 
-/** Fluency uses only full phrases (e.g. in final); initial/medial may be empty. */
 export type WordBanksMap = Record<string, SoundWordBank>;
