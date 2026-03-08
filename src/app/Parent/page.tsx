@@ -99,42 +99,7 @@ const EXERCISE_META: Record<ExerciseType, {
 };
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
-
-const MOCK_PROFILE: ChildProfile = {
-  name: "Liam", age: 7, targetSounds: ["r", "s", "th"],
-  streak: 12, lastSessionDate: "2026-03-06", totalXP: 3840,
-};
-const MOCK_PROGRESS: ProgressData = {
-  sessionsThisWeek: 5, bestAccuracyThisWeek: 91, weeksToMastery: 3, trend: "improving",
-  insight: "Liam is making excellent progress on the 'r' sound. Consistent daily practice is accelerating improvement beyond the initial forecast.",
-};
-const MOCK_SESSIONS: Record<string, SessionData[]> = {
-  r: [
-    { date: "Feb 14", durationSeconds: 420, targetSound: "r", averageAccuracy: 54, exerciseType: "practice",   xpEarned: 40, wordsCompleted: 4, totalWords: 8, attempts: [] },
-    { date: "Feb 17", durationSeconds: 380, targetSound: "r", averageAccuracy: 61, exerciseType: "blend-it",   xpEarned: 50, wordsCompleted: 5, totalWords: 6, attempts: [] },
-    { date: "Feb 20", durationSeconds: 510, targetSound: "r", averageAccuracy: 58, exerciseType: "sound-hunt", xpEarned: 30, wordsCompleted: 3, totalWords: 8, attempts: [] },
-    { date: "Feb 23", durationSeconds: 460, targetSound: "r", averageAccuracy: 67, exerciseType: "rhyme-time", xpEarned: 60, wordsCompleted: 6, totalWords: 8, attempts: [] },
-    { date: "Feb 26", durationSeconds: 490, targetSound: "r", averageAccuracy: 73, exerciseType: "practice",   xpEarned: 70, wordsCompleted: 7, totalWords: 8, attempts: [] },
-    { date: "Mar 01", durationSeconds: 530, targetSound: "r", averageAccuracy: 78, exerciseType: "blend-it",   xpEarned: 60, wordsCompleted: 6, totalWords: 6, attempts: [] },
-    { date: "Mar 04", durationSeconds: 500, targetSound: "r", averageAccuracy: 82, exerciseType: "speak-up",   xpEarned: 60, wordsCompleted: 6, totalWords: 6, attempts: [] },
-    { date: "Mar 06", durationSeconds: 470, targetSound: "r", averageAccuracy: 88, exerciseType: "practice",   xpEarned: 80, wordsCompleted: 8, totalWords: 8, attempts: [] },
-  ],
-  s: [
-    { date: "Feb 15", durationSeconds: 360, targetSound: "s", averageAccuracy: 71, exerciseType: "practice",   xpEarned: 50, wordsCompleted: 5, totalWords: 8, attempts: [] },
-    { date: "Feb 19", durationSeconds: 400, targetSound: "s", averageAccuracy: 75, exerciseType: "sound-hunt", xpEarned: 60, wordsCompleted: 6, totalWords: 8, attempts: [] },
-    { date: "Feb 22", durationSeconds: 430, targetSound: "s", averageAccuracy: 70, exerciseType: "rhyme-time", xpEarned: 50, wordsCompleted: 5, totalWords: 8, attempts: [] },
-    { date: "Feb 25", durationSeconds: 410, targetSound: "s", averageAccuracy: 79, exerciseType: "practice",   xpEarned: 70, wordsCompleted: 7, totalWords: 8, attempts: [] },
-    { date: "Mar 02", durationSeconds: 450, targetSound: "s", averageAccuracy: 83, exerciseType: "blend-it",   xpEarned: 60, wordsCompleted: 6, totalWords: 6, attempts: [] },
-    { date: "Mar 05", durationSeconds: 390, targetSound: "s", averageAccuracy: 87, exerciseType: "speak-up",   xpEarned: 60, wordsCompleted: 6, totalWords: 6, attempts: [] },
-  ],
-  th: [
-    { date: "Feb 18", durationSeconds: 300, targetSound: "th", averageAccuracy: 38, exerciseType: "practice",   xpEarned: 20, wordsCompleted: 2, totalWords: 8, attempts: [] },
-    { date: "Feb 22", durationSeconds: 340, targetSound: "th", averageAccuracy: 42, exerciseType: "sound-hunt", xpEarned: 30, wordsCompleted: 3, totalWords: 8, attempts: [] },
-    { date: "Feb 27", durationSeconds: 360, targetSound: "th", averageAccuracy: 39, exerciseType: "rhyme-time", xpEarned: 30, wordsCompleted: 3, totalWords: 8, attempts: [] },
-    { date: "Mar 03", durationSeconds: 380, targetSound: "th", averageAccuracy: 48, exerciseType: "blend-it",   xpEarned: 40, wordsCompleted: 4, totalWords: 6, attempts: [] },
-    { date: "Mar 06", durationSeconds: 410, targetSound: "th", averageAccuracy: 55, exerciseType: "practice",   xpEarned: 50, wordsCompleted: 5, totalWords: 8, attempts: [] },
-  ],
-};
+// Real data is now fetched from the API.
 
 // ─── UTILITIES ────────────────────────────────────────────────────────────────
 
@@ -529,17 +494,45 @@ export default function ParentDashboard() {
   const [activeModal, setActiveModal] = useState<ExerciseType | null>(null);
 
   useEffect(() => {
-    setTimeout(() => {
-      setProfile(MOCK_PROFILE); setProgress(MOCK_PROGRESS);
-      setSessions(MOCK_SESSIONS["r"]);
-      setLoadingProfile(false); setLoadingSessions(false);
-    }, 1200);
+    async function load() {
+      try {
+        const [profileRes, progressRes] = await Promise.all([
+          fetch("/api/profile"),
+          fetch("/api/progress"),
+        ]);
+        const { profile: p } = await profileRes.json();
+        const prog = await progressRes.json();
+        setProfile(p);
+        setProgress(prog);
+        if (p?.targetSounds?.length) {
+          setSelectedSound(p.targetSounds[0]);
+        }
+      } catch (e) {
+        console.error("Failed to load profile/progress", e);
+      } finally {
+        setLoadingProfile(false);
+        setLoadingSessions(false);
+      }
+    }
+    load();
   }, []);
 
   useEffect(() => {
     if (!profile) return;
     setLoadingSessions(true);
-    setTimeout(() => { setSessions(MOCK_SESSIONS[selectedSound] || []); setLoadingSessions(false); }, 600);
+    async function loadSessions() {
+      try {
+        const res = await fetch(`/api/session?sound=${selectedSound}`);
+        const { sessions: s } = await res.json();
+        setSessions(s ?? []);
+      } catch (e) {
+        console.error("Failed to load sessions", e);
+        setSessions([]);
+      } finally {
+        setLoadingSessions(false);
+      }
+    }
+    loadSessions();
   }, [selectedSound, profile]);
 
   return (

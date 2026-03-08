@@ -5,7 +5,7 @@ import {
 } from "recharts";
 
 // ─── MOCK DATA (simulates API responses) ────────────────────────────────────
-
+/*
 const MOCK_PROFILE = {
   name: "Liam",
   age: 7,
@@ -50,7 +50,7 @@ const MOCK_SESSIONS = {
     { date: "Mar 06", durationSeconds: 410, targetSound: "th", averageAccuracy: 55, attempts: [] },
   ],
 };
-
+*/
 // ─── UTILITIES ───────────────────────────────────────────────────────────────
 
 function daysSince(dateStr) {
@@ -426,26 +426,47 @@ export default function ArtiCueDashboard() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(true);
 
-  // Simulate initial fetch
+  // Real fetch on load
   useEffect(() => {
-    setTimeout(() => {
-      setProfile(MOCK_PROFILE);
-      setProgress(MOCK_PROGRESS);
-      setSessions(MOCK_SESSIONS["r"]);
-      setLoadingProfile(false);
-      setLoadingSessions(false);
-    }, 1200);
+    async function load() {
+      try {
+        const [profileRes, progressRes] = await Promise.all([
+          fetch("/api/profile"),
+          fetch("/api/progress"),
+        ]);
+        const { profile: p } = await profileRes.json();
+        const prog = await progressRes.json();
+        setProfile(p);
+        setProgress(prog);
+        setSelectedSound(p.targetSounds?.[0] ?? "r");
+      } catch (e) {
+        console.error("Failed to load profile/progress", e);
+      } finally {
+        setLoadingProfile(false);
+        setLoadingSessions(false);
+      }
+    }
+    load();
   }, []);
 
-  // Simulate sound change fetch
+  // Real fetch on sound change
   useEffect(() => {
     if (!profile) return;
     setLoadingSessions(true);
-    setTimeout(() => {
-      setSessions(MOCK_SESSIONS[selectedSound] || []);
-      setLoadingSessions(false);
-    }, 600);
-  }, [selectedSound]);
+    async function loadSessions() {
+      try {
+        const res = await fetch(`/api/session?sound=${selectedSound}`);
+        const { sessions: s } = await res.json();
+        setSessions(s ?? []);
+      } catch (e) {
+        console.error("Failed to load sessions", e);
+        setSessions([]);
+      } finally {
+        setLoadingSessions(false);
+      }
+    }
+    loadSessions();
+  }, [selectedSound, profile]);
 
   return (
     <>
