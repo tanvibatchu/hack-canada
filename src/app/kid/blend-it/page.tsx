@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Nova from "@/components/Nova";
 import MicButton from "@/components/MicButton";
+import AudioControls from "@/components/AudioControls";
 import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
@@ -310,7 +311,7 @@ export default function BlendItPage() {
 
     return (
         <>
-                        <style>{`
+            <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
                 body {
                     background: #F9F4F1;
@@ -432,21 +433,14 @@ export default function BlendItPage() {
 
                 {/* Mic + Replay buttons (waiting phase) */}
                 {(phase === "waiting" || phase === "recording") && (
-                    <div className="flex flex-col items-center gap-3 mt-2">
+                    <div className="flex flex-col items-center gap-4 mt-2">
                         <MicButton
                             onStart={handleMicStart}
                             onStop={handleMicStop}
                             isRecording={phase === "recording"}
                             disabled={phase !== "waiting"}
                         />
-                        {phase === "waiting" && (
-                            <button
-                                onClick={revealWord}
-                                className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-sm font-black text-[#945F95] hover:text-[#390052] bg-white/5 hover:bg-[rgba(57,0,82,0.1)] border border-white/10 transition-all duration-200"
-                            >
-                                🔁 Replay sounds
-                            </button>
-                        )}
+                        <AudioControls disabled={phase === "recording"} />
                     </div>
                 )}
 

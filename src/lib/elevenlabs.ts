@@ -27,6 +27,20 @@ function getAudioContext(): AudioContext {
 
 // Track the currently-playing source so we can stop it before starting a new one.
 let _currentSource: AudioBufferSourceNode | null = null;
+let _currentGain: GainNode | null = null;
+let _isMuted = false;
+let _lastBuffer: AudioBuffer | null = null;
+
+export function setMuted(muted: boolean): void {
+  _isMuted = muted;
+  if (_currentGain) {
+    _currentGain.gain.value = muted ? 0 : 1;
+  }
+}
+
+export function isMuted(): boolean {
+  return _isMuted;
+}
 
 /** Stop whatever is currently playing (if anything). */
 export function stopCurrentAudio(): void {
@@ -34,6 +48,7 @@ export function stopCurrentAudio(): void {
     try { _currentSource.stop(); } catch { /* already stopped */ }
     _currentSource = null;
   }
+  _currentGain = null;
 }
 
 // Tracks whether the AudioContext has been warmed up after its first resume.
@@ -75,6 +90,8 @@ export async function speakAsNova(text: string, speed = 1): Promise<void> {
     const arrayBuffer = await res.arrayBuffer();
     const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
 
+    _lastBuffer = decoded;
+
     // First-play hardware warmup: Chrome marks AudioContext resumed before the audio
     // hardware output is fully connected. A short delay ensures the first clip is audible.
     if (!_contextWarmedUp) {
@@ -87,14 +104,24 @@ export async function speakAsNova(text: string, speed = 1): Promise<void> {
 
     const source = ctx.createBufferSource();
     source.buffer = decoded;
-    source.connect(ctx.destination);
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = _isMuted ? 0 : 1;
+
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
     _currentSource = source;
+    _currentGain = gainNode;
     source.start(0);
 
     // audioEndedPromise: resolves when the source finishes naturally, or safety-timeout fires
     const audioEndedPromise = new Promise<void>((resolve) => {
       const done = () => {
-        if (_currentSource === source) _currentSource = null;
+        if (_currentSource === source) {
+          _currentSource = null;
+          _currentGain = null;
+        }
         resolve();
       };
       source.addEventListener("ended", done, { once: true });
@@ -114,6 +141,48 @@ export async function speakAsNova(text: string, speed = 1): Promise<void> {
   } catch (err) {
     throw err instanceof Error ? err : new Error(String(err));
   }
+}
+
+/**
+ * Replays the last requested audio buffer through the same gain-node pipeline, bypassing the network fetch.
+ * Returns a promise that resolves when the audio completes, ensuring UI animations remain synchronous.
+ */
+export async function repeatLastAudio(): Promise<void> {
+  if (!_lastBuffer) return;
+  const ctx = getAudioContext();
+  if (ctx.state === "suspended") await ctx.resume();
+  stopCurrentAudio();
+
+  const source = ctx.createBufferSource();
+  source.buffer = _lastBuffer;
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = _isMuted ? 0 : 1;
+
+  source.connect(gainNode);
+  gainNode.connect(ctx.destination);
+
+  _currentSource = source;
+  _currentGain = gainNode;
+  source.start(0);
+
+  const audioEndedPromise = new Promise<void>((resolve) => {
+    const done = () => {
+      if (_currentSource === source) {
+        _currentSource = null;
+        _currentGain = null;
+      }
+      resolve();
+    };
+    source.addEventListener("ended", done, { once: true });
+    setTimeout(done, (_lastBuffer!.duration + 2) * 1000);
+  });
+
+  const minDurationPromise = new Promise<void>(r =>
+    setTimeout(r, Math.max(_lastBuffer!.duration * 1000, 800))
+  );
+
+  await Promise.all([audioEndedPromise, minDurationPromise]);
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -12,6 +12,7 @@ import ChoiceButton from "@/components/ChoiceButton";
 import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
+import AudioControls from "@/components/AudioControls";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { generateSessionCelebration } from "@/lib/gemini";
@@ -277,7 +278,7 @@ export default function SoundHuntPage() {
 
     return (
         <>
-                        <style>{`
+            <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
                 body {
                     background: #F9F4F1;
@@ -310,10 +311,13 @@ export default function SoundHuntPage() {
                 </div>
 
                 {/* Mode pill — with SFA label for practitioners */}
-                <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
-                    <span className="text-lg">📍</span>
-                    <span className="text-sm font-black text-[#945F95]">Sound Hunt</span>
-                    <span className="text-xs text-[#1CB0F6] ml-1">SFA · Aphasia</span>
+                <div className="flex w-full max-w-sm md:max-w-lg items-center justify-between">
+                    <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
+                        <span className="text-lg">📍</span>
+                        <span className="text-sm font-black text-[#945F95]">Sound Hunt</span>
+                        <span className="text-xs text-[#1CB0F6] ml-1">SFA · Aphasia</span>
+                    </div>
+                    <AudioControls disabled={phase !== "showing"} />
                 </div>
 
                 {/* Nova */}

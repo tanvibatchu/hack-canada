@@ -5,6 +5,7 @@ import Link from "next/link";
 import Nova from "@/components/Nova";
 import WordCard from "@/components/WordCard";
 import MicButton from "@/components/MicButton";
+import AudioControls from "@/components/AudioControls";
 import MouthDiagram from "@/components/MouthDiagram";
 import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
@@ -76,7 +77,7 @@ export default function PracticePage() {
     const initSession = useCallback((p: ChildProfile, sound: TargetSound) => {
         setPhase("loading"); setWordIndex(0); setAttempts(0); setXp(0);
         setAllAttempts([]); setShowMouthDiagram(false); setShowSummary(false); setLastResult(null);
-        setWords(getSessionWords(sound, TOTAL_WORDS));
+        setWords(getSessionWords(sound, TOTAL_WORDS, p.age));
         const session = startSession(p.name || MOCK_USER_ID, sound);
         sessionIdRef.current = session;
         if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
@@ -93,10 +94,11 @@ export default function PracticePage() {
         };
     }, []);
     useEffect(() => {
-        if (phase !== "greeting" || !profile || words.length === 0) return;
+        const currentProfile = profile;
+        if (phase !== "greeting" || !currentProfile || words.length === 0) return;
         async function greet() {
             setNovaState("encouraging");
-            await speakAsNova("Hi " + profile.name + "! Let us practice your " + SOUND_LABELS[activeSound] + " sound!");
+            await speakAsNova("Hi " + (currentProfile?.name ?? "Friend") + "! Let us practice your " + SOUND_LABELS[activeSound] + " sound!");
             setNovaState("thinking"); setPhase("demonstrating");
         }
         greet();
@@ -236,7 +238,7 @@ export default function PracticePage() {
     }
     return (
         <>
-                        <style>{`
+            <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
                 body {
                     background: #F9F4F1;
@@ -294,12 +296,13 @@ export default function PracticePage() {
                 {words[wordIndex] && phase !== "greeting" && (
                     <WordCard word={words[wordIndex].word} emoji={words[wordIndex].emoji} targetSound={activeSound} />
                 )}
-                <div className="flex flex-col items-center mt-2">
+                <div className="flex flex-col items-center mt-2 gap-4">
                     <MicButton
                         onStart={handleMicStart} onStop={handleMicStop}
                         isRecording={phase === "recording"}
                         disabled={["loading", "greeting", "demonstrating", "analyzing", "celebrating", "redirecting", "summary"].includes(phase)}
                     />
+                    <AudioControls disabled={["loading", "greeting", "demonstrating", "analyzing", "celebrating", "redirecting", "summary", "recording"].includes(phase)} />
                 </div>
                 {(phase === "redirecting" || attempts > 0) && (
                     <div className="flex gap-2 items-center">

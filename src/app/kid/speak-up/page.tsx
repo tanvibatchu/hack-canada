@@ -12,6 +12,7 @@ import Nova from "@/components/Nova";
 import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
+import AudioControls from "@/components/AudioControls";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { generateSessionCelebration } from "@/lib/gemini";
@@ -246,7 +247,7 @@ export default function SpeakUpPage() {
 
     return (
         <>
-                        <style>{`
+            <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
                 body {
                     background: #F9F4F1;
@@ -279,10 +280,13 @@ export default function SpeakUpPage() {
                 </div>
 
                 {/* Mode pill */}
-                <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
-                    <span className="text-lg">🔊</span>
-                    <span className="text-sm font-black text-[#945F95]">Speak Up!</span>
-                    <span className="text-xs text-[#1CB0F6] ml-1">LSVT · Dysarthria</span>
+                <div className="flex w-full max-w-sm md:max-w-lg items-center justify-between">
+                    <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
+                        <span className="text-lg">🔊</span>
+                        <span className="text-sm font-black text-[#945F95]">Speak Up!</span>
+                        <span className="text-xs text-[#1CB0F6] ml-1">LSVT · Dysarthria</span>
+                    </div>
+                    <AudioControls disabled={!["waiting", "recording"].includes(phase)} colorTheme="#1CB0F6" />
                 </div>
 
                 {/* Nova */}

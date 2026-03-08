@@ -3,11 +3,13 @@
 import { useUser } from '@auth0/nextjs-auth0/client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import ParentGate from '@/components/ParentGate';
 
 export default function RolePage() {
   const { user, isLoading } = useUser();
   const router = useRouter();
+  const [showGate, setShowGate] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -49,12 +51,12 @@ export default function RolePage() {
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Link
-            href="/Parent"
+          <button
+            onClick={() => setShowGate(true)}
             className="px-6 py-4 bg-white text-[#302b63] font-semibold rounded-lg shadow-lg shadow-purple-500/40 hover:-translate-y-0.5 transition-all duration-200"
           >
             Parent
-          </Link>
+          </button>
           <Link
             href="/kid"
             className="px-6 py-4 bg-purple-600 text-white font-semibold rounded-lg shadow-lg shadow-purple-500/60 hover:bg-purple-700 hover:-translate-y-0.5 transition-all duration-200"
@@ -63,6 +65,12 @@ export default function RolePage() {
           </Link>
         </div>
       </div>
+      {showGate && (
+        <ParentGate
+          onClose={() => setShowGate(false)}
+          onSuccess={() => router.push('/Parent')}
+        />
+      )}
     </div>
   );
 }

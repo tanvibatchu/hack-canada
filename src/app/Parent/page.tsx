@@ -2,6 +2,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import ProfileMenu from "@/components/ProfileMenu";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, BarChart, Bar,
@@ -10,17 +12,17 @@ import {
 // ─── THEME ───────────────────────────────────────────────────────────────────
 
 const COLORS = {
-  parchment: "#F9F4F1", 
+  parchment: "#F9F4F1",
   white: "#FFFFFF",
-  velvet: "#631D76",    
-  amethyst: "#390052",  
-  peony: "#CE7DA5",     
-  lavender: "#945F95",  
+  velvet: "#631D76",
+  amethyst: "#390052",
+  peony: "#CE7DA5",
+  lavender: "#945F95",
   pageBg: "#F9F4F1",
   streak: "#FF9600",
   xp: "#FFC800",
-  green: "#58CC02",     
-  blue: "#1CB0F6",      
+  green: "#58CC02",
+  blue: "#1CB0F6",
   red: "#FF4B4B",
   borderLight: "rgba(57, 0, 82, 0.1)",
   borderDark: "rgba(57, 0, 82, 0.15)",
@@ -210,7 +212,7 @@ function ExerciseModal({ type, sessions, onClose }: { type: ExerciseType; sessio
               { label: "Total XP", value: `${totalXP}`, icon: "⭐", color: COLORS.xp },
             ].map(({ label, value, color, icon }) => (
               <div key={label} style={{ background: COLORS.white, border: `1px solid ${COLORS.borderLight}`, borderRadius: 12, padding: "16px", textAlign: "center" }}>
-                <div style={{ fontSize: "1.4rem", fontWeight: 700, color }}>{icon && <span style={{fontSize:"1rem"}}>{icon} </span>}{value}</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 700, color }}>{icon && <span style={{ fontSize: "1rem" }}>{icon} </span>}{value}</div>
                 <div style={{ fontSize: "0.75rem", color: COLORS.lavender, marginTop: 8, fontWeight: 600, letterSpacing: "0.02em" }}>{label.toUpperCase()}</div>
               </div>
             ))}
@@ -243,7 +245,7 @@ function ExerciseModal({ type, sessions, onClose }: { type: ExerciseType; sessio
                   <BarChart data={typeSessions} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                     <XAxis dataKey="date" tick={{ fill: COLORS.lavender, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
                     <YAxis domain={[0, 100]} tick={{ fill: COLORS.lavender, fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}%`} />
-                    <Tooltip cursor={{fill: COLORS.borderLight}} contentStyle={{ background: COLORS.white, border: `1px solid ${COLORS.borderLight}`, borderRadius: 8, fontSize: "0.9rem", fontWeight: 600, color: COLORS.amethyst, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }} />
+                    <Tooltip cursor={{ fill: COLORS.borderLight }} contentStyle={{ background: COLORS.white, border: `1px solid ${COLORS.borderLight}`, borderRadius: 8, fontSize: "0.9rem", fontWeight: 600, color: COLORS.amethyst, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }} />
                     <ReferenceLine y={meta.goodScore} stroke={COLORS.xp} strokeDasharray="4 4" strokeWidth={1} />
                     <Bar dataKey="averageAccuracy" name="Accuracy" fill={meta.color} radius={[4, 4, 0, 0]} opacity={0.9} />
                   </BarChart>
@@ -316,7 +318,7 @@ function ExerciseBreakdown({ sessions, loading, onSelect }: { sessions: SessionD
               opacity: data ? 1 : 0.7, cursor: "pointer",
               textAlign: "left", transition: "transform 0.1s, box-shadow 0.1s",
             }}
-              onMouseEnter={e => { if(data){ (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px ${meta.color}15`; } }}
+              onMouseEnter={e => { if (data) { (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px ${meta.color}15`; } }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -343,21 +345,21 @@ function ExerciseBreakdown({ sessions, loading, onSelect }: { sessions: SessionD
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
 
-function TopBar({ onPrint }: { onPrint: () => void }) {
+function TopBar({ onPrint, onOpenProfile, onKidsView }: { onPrint: () => void; onOpenProfile: () => void; onKidsView: () => void }) {
   return (
-    <header style={{ 
-      background: COLORS.white, 
-      borderBottom: `1px solid ${COLORS.borderLight}`, 
-      position: "sticky", top: 0, zIndex: 50, 
-      padding: "0 24px", 
-      display: "flex", alignItems: "center", justifyContent: "space-between", 
-      height: 64 
+    <header style={{
+      background: COLORS.white,
+      borderBottom: `1px solid ${COLORS.borderLight}`,
+      position: "sticky", top: 0, zIndex: 50,
+      padding: "0 24px",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      height: 64
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ 
-          width: 36, height: 36, borderRadius: 8, 
-          background: COLORS.velvet, 
-          display: "flex", alignItems: "center", justifyContent: "center", 
+        <div style={{
+          width: 36, height: 36, borderRadius: 8,
+          background: COLORS.velvet,
+          display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 18, fontWeight: 700, color: COLORS.white,
         }}>A</div>
         <div>
@@ -366,21 +368,29 @@ function TopBar({ onPrint }: { onPrint: () => void }) {
         </div>
       </div>
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-        <button onClick={onPrint} style={{ 
+        <button onClick={onKidsView} style={{
           background: COLORS.white, border: `1px solid ${COLORS.borderLight}`,
-          color: COLORS.amethyst, borderRadius: 8, padding: "8px 16px", 
-          fontSize: "0.9rem", fontWeight: 600, cursor: "pointer", 
-          display: "flex", alignItems: "center", gap: 8, transition: "background 0.1s" 
+          color: COLORS.amethyst, borderRadius: 8, padding: "8px 16px",
+          fontSize: "0.9rem", fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8, transition: "background 0.1s"
+        }} onMouseEnter={e => e.currentTarget.style.background = COLORS.parchment} onMouseLeave={e => e.currentTarget.style.background = COLORS.white}>
+          Child View
+        </button>
+        <button onClick={onPrint} style={{
+          background: COLORS.white, border: `1px solid ${COLORS.borderLight}`,
+          color: COLORS.amethyst, borderRadius: 8, padding: "8px 16px",
+          fontSize: "0.9rem", fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8, transition: "background 0.1s"
         }} onMouseEnter={e => e.currentTarget.style.background = COLORS.parchment} onMouseLeave={e => e.currentTarget.style.background = COLORS.white}>
           Share Data
         </button>
-        <div style={{ 
-          width: 40, height: 40, borderRadius: "50%", 
+        <button onClick={onOpenProfile} style={{
+          width: 40, height: 40, borderRadius: "50%",
           background: COLORS.parchment,
           border: `1px solid ${COLORS.borderLight}`,
-          display: "flex", alignItems: "center", justifyContent: "center", 
-          color: COLORS.amethyst, fontWeight: 700, fontSize: "1.1rem", cursor: "pointer" 
-        }}>P</div>
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: COLORS.amethyst, fontWeight: 700, fontSize: "1.1rem", cursor: "pointer"
+        }}>P</button>
       </div>
     </header>
   );
@@ -392,10 +402,10 @@ function ChildProfileCard({ profile, loading }: { profile: ChildProfile | null; 
   return (
     <div style={{ ...UI.card, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-        <div style={{ 
-          width: 80, height: 80, borderRadius: "50%", 
-          background: COLORS.parchment, border: `2px solid ${COLORS.blue}`, 
-          display: "flex", alignItems: "center", justifyContent: "center", 
+        <div style={{
+          width: 80, height: 80, borderRadius: "50%",
+          background: COLORS.parchment, border: `2px solid ${COLORS.blue}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: "2.5rem",
         }}>👦🏽</div>
         <div>
@@ -409,7 +419,7 @@ function ChildProfileCard({ profile, loading }: { profile: ChildProfile | null; 
       </div>
       <div style={{ display: "flex", gap: 16 }}>
         {[
-          { icon: "🔥", val: profile.streak, label: "Day Streak", color: COLORS.streak }, 
+          { icon: "🔥", val: profile.streak, label: "Day Streak", color: COLORS.streak },
           { icon: "⭐", val: profile.totalXP.toLocaleString(), label: "Total XP", color: COLORS.xp }
         ].map(({ icon, val, label, color }) => (
           <div key={label} style={{ textAlign: "center", background: COLORS.parchment, padding: "16px 24px", borderRadius: 12, border: `1px solid ${COLORS.borderLight}` }}>
@@ -433,9 +443,9 @@ function ProgressSummary({ profile, progress, loading }: { profile: ChildProfile
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16 }}>
       {stats.map(({ icon, label, value, color }) => loading ? <Skeleton key={label} height={120} /> : (
-        <div key={label} style={{ 
-          ...UI.card, 
-          padding: 20, 
+        <div key={label} style={{
+          ...UI.card,
+          padding: 20,
           borderLeft: `4px solid ${color}`,
           display: "flex", flexDirection: "column", justifyContent: "space-between"
         }}>
@@ -452,14 +462,14 @@ function SoundSelector({ sounds, selected, onChange }: { sounds: string[]; selec
   return (
     <div style={{ display: "flex", gap: 12 }}>
       {sounds.map(sound => (
-        <button key={sound} onClick={() => onChange(sound)} style={{ 
-          padding: "8px 24px", 
+        <button key={sound} onClick={() => onChange(sound)} style={{
+          padding: "8px 24px",
           background: selected === sound ? COLORS.blue : COLORS.white,
           border: selected === sound ? `1px solid #1899d6` : `1px solid ${COLORS.borderLight}`,
           borderRadius: 8,
-          cursor: "pointer", fontSize: "1.1rem", fontWeight: 600, 
-          color: selected === sound ? COLORS.white : COLORS.lavender, 
-          transition: "all 0.1s" 
+          cursor: "pointer", fontSize: "1.1rem", fontWeight: 600,
+          color: selected === sound ? COLORS.white : COLORS.lavender,
+          transition: "all 0.1s"
         }}>
           /{sound}/
         </button>
@@ -474,9 +484,9 @@ function PredictionCard({ progress, loading }: { progress: ProgressData | null; 
   const trendIcon = progress.trend === "improving" ? "📈" : progress.trend === "plateau" ? "➡️" : "📊";
   const trendLabel = { improving: "Improving", plateau: "Plateau", inconsistent: "Inconsistent" }[progress.trend] ?? progress.trend;
   return (
-    <div style={{ 
+    <div style={{
       ...UI.card, border: `1px solid ${COLORS.velvet}`,
-      display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 24, 
+      display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 24,
       background: COLORS.white
     }}>
       <div>
@@ -486,13 +496,13 @@ function PredictionCard({ progress, loading }: { progress: ProgressData | null; 
           <span style={{ color: COLORS.lavender, fontSize: "1.1rem", fontWeight: 600 }}>weeks</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-          <span style={{fontSize: "1.1rem"}}>{trendIcon}</span>
+          <span style={{ fontSize: "1.1rem" }}>{trendIcon}</span>
           <span style={{ color: COLORS.green, fontSize: "0.95rem", fontWeight: 600 }}>{trendLabel}</span>
         </div>
       </div>
-      <div style={{ 
-        maxWidth: 420, color: COLORS.amethyst, fontSize: "0.95rem", fontWeight: 500, lineHeight: 1.5, 
-        background: COLORS.parchment, borderRadius: 8, padding: "16px 20px", 
+      <div style={{
+        maxWidth: 420, color: COLORS.amethyst, fontSize: "0.95rem", fontWeight: 500, lineHeight: 1.5,
+        background: COLORS.parchment, borderRadius: 8, padding: "16px 20px",
         borderLeft: `4px solid ${COLORS.xp}`
       }}>
         ⭐ {progress.insight}
@@ -506,7 +516,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   return (
     <div style={{ background: COLORS.white, border: `1px solid ${COLORS.borderLight}`, borderRadius: 8, padding: "12px 16px", fontSize: "0.9rem", color: COLORS.amethyst, fontWeight: 600, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
       <div style={{ fontWeight: 700, marginBottom: 8, color: COLORS.lavender }}>{label}</div>
-      {payload.map(p => <div key={p.name} style={{ color: p.color, marginTop: 4 }}>{p.name}: <strong style={{fontSize: "1.1rem"}}>{p.value}%</strong></div>)}
+      {payload.map(p => <div key={p.name} style={{ color: p.color, marginTop: 4 }}>{p.name}: <strong style={{ fontSize: "1.1rem" }}>{p.value}%</strong></div>)}
     </div>
   );
 }
@@ -521,10 +531,10 @@ function AccuracyChart({ sessions, sound, loading }: { sessions: SessionData[]; 
           <div style={{ fontSize: "1.2rem", fontWeight: 700, color: COLORS.amethyst }}>Accuracy Over Time — <span style={{ color: COLORS.blue }}>/{sound}/</span></div>
           <div style={{ fontSize: "0.85rem", fontWeight: 600, color: COLORS.lavender, marginTop: 4 }}>Combined overall performance</div>
         </div>
-        <div style={{ 
-          display: "flex", alignItems: "center", gap: 8, 
-          background: "rgba(255, 200, 0, 0.1)", border: `1px solid ${COLORS.xp}`, 
-          borderRadius: 8, padding: "8px 12px", fontSize: "0.85rem", fontWeight: 600, color: "#b38b00" 
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: "rgba(255, 200, 0, 0.1)", border: `1px solid ${COLORS.xp}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: "0.85rem", fontWeight: 600, color: "#b38b00"
         }} title="80% accuracy is the standard SLP threshold for sound mastery.">
           🎯 80% Mastery Goal ⓘ
         </div>
@@ -564,10 +574,10 @@ function SessionHistory({ sessions, loading }: { sessions: SessionData[]; loadin
                 <tr key={i} style={{ borderBottom: `1px solid ${COLORS.borderLight}` }}>
                   <td style={{ padding: "16px 12px", color: COLORS.amethyst }}>{s.date}</td>
                   <td style={{ padding: "16px 12px" }}>
-                    <span style={{ 
-                      display: "inline-flex", alignItems: "center", gap: 6, 
-                      background: `${meta.color}15`, border: `1px solid ${meta.color}50`, 
-                      color: meta.color, borderRadius: 8, padding: "4px 12px", fontSize: "0.85rem", fontWeight: 600, whiteSpace: "nowrap" 
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: `${meta.color}15`, border: `1px solid ${meta.color}50`,
+                      color: meta.color, borderRadius: 8, padding: "4px 12px", fontSize: "0.85rem", fontWeight: 600, whiteSpace: "nowrap"
                     }}>{meta.icon} {meta.label}</span>
                   </td>
                   <td style={{ padding: "16px 12px" }}>
@@ -593,6 +603,7 @@ function SessionHistory({ sessions, loading }: { sessions: SessionData[]; loadin
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 
 export default function ParentDashboard() {
+  const router = useRouter();
   const [profile, setProfile] = useState<ChildProfile | null>(null);
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -600,6 +611,7 @@ export default function ParentDashboard() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [activeModal, setActiveModal] = useState<ExerciseType | null>(null);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -666,31 +678,39 @@ export default function ParentDashboard() {
         />
       )}
 
+      {isProfileMenuOpen && (
+        <ProfileMenu onClose={() => window.location.reload()} />
+      )}
+
       <div style={{ minHeight: "100vh", paddingBottom: 64 }}>
-        <TopBar onPrint={() => window.print()} />
+        <TopBar
+          onPrint={() => window.print()}
+          onOpenProfile={() => setIsProfileMenuOpen(true)}
+          onKidsView={() => router.push('/kid')}
+        />
         <main style={{ maxWidth: 1024, margin: "0 auto", padding: "32px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
           <div style={{ animation: "fadeUp 0.3s ease both" }}><ChildProfileCard profile={profile} loading={loadingProfile} /></div>
-          
+
           <div style={{ animation: "fadeUp 0.3s ease 0.05s both", display: "flex", flexDirection: "column", gap: 12 }}>
-             <h2 style={{fontSize: "1.2rem", fontWeight: 700, color: COLORS.amethyst, paddingLeft: 4}}>Weekly Overview</h2>
-             <ProgressSummary profile={profile} progress={progress} loading={loadingProfile} />
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: COLORS.amethyst, paddingLeft: 4 }}>Weekly Overview</h2>
+            <ProgressSummary profile={profile} progress={progress} loading={loadingProfile} />
           </div>
 
           <div style={{ animation: "fadeUp 0.3s ease 0.1s both" }}>
             <ExerciseBreakdown sessions={sessions} loading={loadingSessions} onSelect={setActiveModal} />
           </div>
-          
+
           {!loadingProfile && profile && (
             <div style={{ animation: "fadeUp 0.3s ease 0.15s both", background: COLORS.white, padding: "20px 24px", borderRadius: 12, border: `1px solid ${COLORS.borderLight}` }}>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, color: COLORS.amethyst, marginBottom: 12 }}>Target Sounds</div>
               <SoundSelector sounds={profile.targetSounds} selected={selectedSound} onChange={setSelectedSound} />
             </div>
           )}
-          
+
           <div style={{ animation: "fadeUp 0.3s ease 0.2s both" }}><PredictionCard progress={progress} loading={loadingProfile} /></div>
-          
+
           <div style={{ animation: "fadeUp 0.3s ease 0.25s both" }}><AccuracyChart sessions={sessions} sound={selectedSound} loading={loadingSessions} /></div>
-          
+
           <div style={{ animation: "fadeUp 0.3s ease 0.3s both" }}><SessionHistory sessions={sessions} loading={loadingSessions} /></div>
         </main>
       </div>

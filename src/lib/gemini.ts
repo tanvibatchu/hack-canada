@@ -60,7 +60,7 @@ export async function analyzePhoneme(
     // Prompt 1 — Phoneme analysis (kid feedback)
     const prompt = [
       "You are a pediatric speech-language pathologist assistant.",
-      `Child age: ${a}`,
+      `Child age: ${a} (CRITICAL: Be very forgiving and encouraging for ages 3-4, passing if vowels and 1 consonant are right. For ages 7+, be stricter with articulation and catch substitutions).`,
       `Target sound: ${ts}`,
       `Target word: ${w}`,
       `What the child said: ${t}`,
@@ -120,7 +120,7 @@ export async function generateSessionCelebration(
 
 export async function analyzeFluency(phrase: string, transcript: string, age: number): Promise<FluencyResult> {
   try {
-    const prompt = `You are a pediatric speech-language pathologist assistant.\nChild age: ${age}\nTarget phrase: ${phrase}\nWhat the child said: ${transcript}\nRespond in JSON only, no other text:\n{ "score": number 0-100, "rhythm": "good" | "rushed" | "hesitant", "feedback": string, "encouragement": string }`;
+    const prompt = `You are a pediatric speech-language pathologist assistant.\nChild age: ${age} (Be forgiving for young children ages 3-4, stricter for 7+).\nTarget phrase: ${phrase}\nWhat the child said: ${transcript}\nRespond in JSON only, no other text:\n{ "score": number 0-100, "rhythm": "good" | "rushed" | "hesitant", "feedback": string, "encouragement": string }`;
     const raw = await callGemini(prompt);
     return normalizeFluencyResult(JSON.parse(raw) as FluencyResult);
   } catch (err) { throw err instanceof Error ? err : new Error(String(err)); }

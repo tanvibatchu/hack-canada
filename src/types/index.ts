@@ -11,6 +11,9 @@ export interface ChildProfile {
   streak: number;
   lastSessionDate: string;
   totalXP: number;
+  parentName?: string;
+  parentRelation?: string;
+  parentPin?: string;
 }
 
 export interface Attempt {
@@ -66,9 +69,9 @@ export interface WordBankEntry {
 }
 
 export interface SoundWordBank {
-  initial: WordBankEntry[];
-  medial: WordBankEntry[];
-  final: WordBankEntry[];
+  level1: WordBankEntry[];
+  level2: WordBankEntry[];
+  level3: WordBankEntry[];
 }
 
 export type WordBanksMap = Record<string, SoundWordBank>;

@@ -12,9 +12,9 @@ export async function GET() {
     const user = await requireUser();
     const profile = await getChildProfile(user.userId);
     if (!profile) {
-      return NextResponse.json({ profile: null }, { status: 200 });
+      return NextResponse.json({ profile: null, user }, { status: 200 });
     }
-    return NextResponse.json({ profile }, { status: 200 });
+    return NextResponse.json({ profile, user }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
       { error: 'Not authenticated' },
