@@ -13,8 +13,13 @@ import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
+<<<<<<< HEAD
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { generateSessionCelebration } from "@/lib/gemini";
+=======
+import { speakAsNova } from "@/lib/elevenlabs";
+
+>>>>>>> 78b9e62c8d615ffbb55dfc709d1c4c7dcd5be608
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
 import { startListening, stopListening } from "@/lib/speechCapture";
@@ -214,8 +219,13 @@ export default function SpeakUpPage() {
         setXp(summary?.xpEarned ?? xp);
 
         try {
-            const msg = await generateSessionCelebration("Voice Power", attemptsList.length || TOTAL_WORDS, acc);
-            setSummaryMessage(msg);
+            const celebRes = await fetch("/api/celebrate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sound: "Voice Power", count: attemptsList.length || TOTAL_WORDS, accuracy: acc }),
+            });
+            const celebData = await celebRes.json();
+            if (celebData.message) setSummaryMessage(celebData.message);
         } catch {
             setSummaryMessage(correct >= 4 ? "Amazing voice work! Your vocal cords are getting so strong!" : "Great effort today! Loud practice makes your voice stronger every time!");
         }

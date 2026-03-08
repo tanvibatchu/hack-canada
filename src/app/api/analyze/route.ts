@@ -5,11 +5,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { analyzePhoneme } from "@/lib/gemini";
-import { requireUser } from "@/lib/auth0";
 
 export async function POST(request: NextRequest) {
   try {
-    await requireUser(); // ensure authenticated
     const body = await request.json();
     const word = typeof body?.word === "string" ? body.word : "";
     const transcript = typeof body?.transcript === "string" ? body.transcript : "";
@@ -32,13 +30,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const unauthorized = message.toLowerCase().includes("auth") || message.includes("401");
-    if (unauthorized) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
-    }
     return NextResponse.json(
       { error: `Analysis failed: ${message}` },
       { status: 500 }

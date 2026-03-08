@@ -15,7 +15,7 @@ import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { rhymeData, RhymeChallenge } from "@/lib/rhymeData";
 import { TargetSound } from "@/lib/wordBanks";
-import { generateSessionCelebration } from "@/lib/gemini";
+
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
 type Phase = "showing" | "answered" | "celebrating" | "redirecting" | "summary";
@@ -78,7 +78,7 @@ export default function RhymeTimePage() {
                 if (p) {
                     const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
                         ? (p.targetSounds as TargetSound[])
-                        : ["r"];
+                        : ["r" as TargetSound];
                     setProfile({
                         name: p.name ?? "Friend",
                         age: typeof p.age === "number" ? p.age : 7,
@@ -86,7 +86,7 @@ export default function RhymeTimePage() {
                         streak: p.streak ?? 0,
                         totalXP: p.totalXP ?? p.xp ?? 0,
                     });
-                    setActiveSound(targets[0] ?? "r");
+                    setActiveSound((targets[0] ?? "r") as TargetSound);
                     setStreak(p.streak ?? 0);
                     return;
                 }
@@ -176,8 +176,13 @@ export default function RhymeTimePage() {
         setXp(summary?.xpEarned ?? xp);
 
         try {
-            const msg = await generateSessionCelebration(activeSound.toUpperCase(), attemptsList.length || TOTAL_ROUNDS, acc);
-            setSummaryMessage(msg);
+            const celebRes = await fetch("/api/celebrate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sound: activeSound.toUpperCase(), count: attemptsList.length || TOTAL_ROUNDS, accuracy: acc }),
+            });
+            const celebData = await celebRes.json();
+            if (celebData.message) setSummaryMessage(celebData.message);
         } catch {
             setSummaryMessage(correct >= 6 ? "You're a rhyming superstar! Your ears are amazing!" : "Wonderful rhyming practice! Every round makes your brain stronger!");
         }

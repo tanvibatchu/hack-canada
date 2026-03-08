@@ -14,8 +14,7 @@ import type {
 export type { PhonemeResult };
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-// Per product spec, use gemini-1.5-flash (flash-tier) for fast, low-latency feedback
-const MODEL = "gemini-1.5-flash";
+const MODEL = "gemini-2.0-flash";
 
 function getApiKey(): string {
   const key = process.env.GEMINI_API_KEY;

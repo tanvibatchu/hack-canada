@@ -15,7 +15,6 @@ import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import type { PhonemeResult } from "@/lib/gemini";
-import { generateSessionCelebration } from "@/lib/gemini";
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { blendData, BlendWord, segmentToSpeech } from "@/lib/blendData";
 import { TargetSound } from "@/lib/wordBanks";
@@ -205,31 +204,31 @@ export default function BlendItPage() {
             if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
 
             if (isCorrect) {
-            setNovaState("celebrating");
-            setShowCelebration(true);
-            setXp(p => p + 10);
-            setCorrect(p => p + 1);
-            setPhase("celebrating");
-            await speakAsNova(`You blended it! ${normalized.feedback || "Amazing!"}`);
-            await new Promise(r => setTimeout(r, 1600));
-            setShowCelebration(false);
-            advanceWord();
-        } else {
-            setNovaState("encouraging");
-            setPhase("redirecting");
-            const nextAttempts = attempts + 1;
-            setAttempts(nextAttempts);
-            if (result.feedback) await speakAsNova(result.feedback);
-
-            if (nextAttempts >= MAX_ATTEMPTS) {
-                await speakAsNova(`The word was ${wordsRef.current[indexRef.current].word}! Let's try the next one!`);
+                setNovaState("celebrating");
+                setShowCelebration(true);
+                setXp(p => p + 10);
+                setCorrect(p => p + 1);
+                setPhase("celebrating");
+                await speakAsNova(`You blended it! ${normalized.feedback || "Amazing!"}`);
+                await new Promise(r => setTimeout(r, 1600));
+                setShowCelebration(false);
                 advanceWord();
             } else {
-                await speakAsNova("Let's hear the sounds again…");
-                await new Promise(r => setTimeout(r, 300));
-                revealWord();
+                setNovaState("encouraging");
+                setPhase("redirecting");
+                const nextAttempts = attempts + 1;
+                setAttempts(nextAttempts);
+                if (result.feedback) await speakAsNova(result.feedback);
+
+                if (nextAttempts >= MAX_ATTEMPTS) {
+                    await speakAsNova(`The word was ${wordsRef.current[indexRef.current].word}! Let's try the next one!`);
+                    advanceWord();
+                } else {
+                    await speakAsNova("Let's hear the sounds again…");
+                    await new Promise(r => setTimeout(r, 300));
+                    revealWord();
+                }
             }
-        }
         } catch (err) {
             setNovaState("encouraging");
             setPhase("waiting");
@@ -266,8 +265,13 @@ export default function BlendItPage() {
         setXp(summary?.xpEarned ?? xp);
 
         try {
-            const msg = await generateSessionCelebration(activeSound.toUpperCase(), attemptsList.length || TOTAL_WORDS, acc);
-            setSummaryMessage(msg);
+            const celebRes = await fetch("/api/celebrate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sound: activeSound.toUpperCase(), count: attemptsList.length || TOTAL_WORDS, accuracy: acc }),
+            });
+            const celebData = await celebRes.json();
+            if (celebData.message) setSummaryMessage(celebData.message);
         } catch {
             setSummaryMessage(correct >= 4 ? "You're a blending champion! Your brain is amazing!" : "Great blending practice! Every try makes you stronger!");
         }
