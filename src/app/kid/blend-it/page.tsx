@@ -69,7 +69,7 @@ export default function BlendItPage() {
                 if (p) {
                     const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
                         ? (p.targetSounds as TargetSound[])
-                        : ["r"];
+                        : ["r" as TargetSound];
                     setProfile({
                         name: p.name ?? "Friend",
                         age: typeof p.age === "number" ? p.age : 6,
@@ -77,7 +77,7 @@ export default function BlendItPage() {
                         streak: p.streak ?? 0,
                         totalXP: p.totalXP ?? p.xp ?? 0,
                     });
-                    setActiveSound(targets[0] ?? "r");
+                    setActiveSound((targets[0] ?? "r") as TargetSound);
                     setStreak(p.streak ?? 0);
                     return;
                 }
