@@ -1,6 +1,6 @@
 /**
  * Client-side ElevenLabs TTS: speaks text via Nova voice and plays in browser using AudioContext.
- * Calls the /api/speak route (server-side) to avoid exposing API keys.
+ * Calls the /api/tts route (server-side) to avoid exposing API keys.
  * Import: speakAsNova, demonstrateWord
  *
  * Uses a singleton AudioContext to avoid Chrome's ~6-context limit.
@@ -8,7 +8,7 @@
  * calls (e.g. from React Strict Mode double-mount) never overlap.
  */
 
-const SPEAK_API = "/api/speak";
+const SPEAK_API = "/api/tts";
 
 // Singleton AudioContext — reused across all calls to avoid the ~6-context browser limit.
 let _ctx: AudioContext | null = null;

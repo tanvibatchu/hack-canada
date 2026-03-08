@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Nova from "@/components/Nova";
 import ChoiceButton from "@/components/ChoiceButton";
@@ -14,12 +14,15 @@ import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova } from "@/lib/elevenlabs";
+import { generateSessionCelebration } from "@/lib/gemini";
 import { TargetSound } from "@/lib/wordBanks";
 import { semanticData } from "@/lib/semanticData";
+import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
 type WordEntry = { word: string; emoji: string; position: "start" | "middle" | "end" };
 type Phase = "loading" | "showing" | "answered" | "celebrating" | "redirecting" | "summary";
 type Choice = "start" | "middle" | "end" | null;
+type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; totalXP: number; };
 
 const TOTAL_ROUNDS = 8;
 
@@ -80,8 +83,9 @@ const SOUND_HUNT_WORDS: Record<TargetSound, WordEntry[]> = {
 const POSITION_LABELS = { start: "Start 🟢", middle: "Middle 🟡", end: "End 🔴" };
 
 export default function SoundHuntPage() {
-    const [activeSound] = useState<TargetSound>("r");
-    const [streak] = useState(3);
+    const [profile, setProfile] = useState<ChildProfile | null>(null);
+    const [activeSound, setActiveSound] = useState<TargetSound>("r");
+    const [streak, setStreak] = useState(0);
     const [words, setWords] = useState<WordEntry[]>([]);
     const [index, setIndex] = useState(0);
     const [phase, setPhase] = useState<Phase>("loading");
@@ -90,9 +94,45 @@ export default function SoundHuntPage() {
     const [correct, setCorrect] = useState(0);
     const [showCelebration, setShowCelebration] = useState(false);
     const [showSummary, setShowSummary] = useState(false);
+    const [finalAccuracy, setFinalAccuracy] = useState(0);
+    const [summaryMessage, setSummaryMessage] = useState("Great listening practice! You're getting better every time!");
     const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
     // SFA hint state — reveals category → function → attribute progressively
     const [hintLevel, setHintLevel] = useState(0); // 0=none, 1=category, 2=function, 3=attribute
+    const sessionRef = useRef<SessionWithId | null>(null);
+    const attemptsRef = useRef<AttemptData[]>([]);
+
+    useEffect(() => {
+        async function loadProfile() {
+            try {
+                const res = await fetch("/api/profile");
+                if (!res.ok) throw new Error("profile fetch failed");
+                const data = await res.json();
+                const p = data?.profile;
+                if (p) {
+                    const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
+                        ? (p.targetSounds as TargetSound[])
+                        : ["r"];
+                    setProfile({
+                        name: p.name ?? "Friend",
+                        age: typeof p.age === "number" ? p.age : 7,
+                        targetSounds: targets,
+                        streak: p.streak ?? 0,
+                        totalXP: p.totalXP ?? p.xp ?? 0,
+                    });
+                    setActiveSound(targets[0] ?? "r");
+                    setStreak(p.streak ?? 0);
+                    return;
+                }
+            } catch {
+                const fallback = { name: "Maya", age: 7, targetSounds: ["r"] as TargetSound[], streak: 1, totalXP: 0 };
+                setProfile(fallback);
+                setActiveSound("r");
+                setStreak(fallback.streak);
+            }
+        }
+        loadProfile();
+    }, []);
 
     useEffect(() => {
         const w = SOUND_HUNT_WORDS[activeSound].slice(0, TOTAL_ROUNDS);
@@ -100,12 +140,25 @@ export default function SoundHuntPage() {
         setPhase("showing");
         setHintLevel(0);
         setNovaState("idle");
-    }, [activeSound]);
+        setXp(0);
+        setCorrect(0);
+        attemptsRef.current = [];
+        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
+    }, [activeSound, profile?.name]);
 
     async function handleChoice(picked: "start" | "middle" | "end") {
         if (phase !== "showing") return;
         setChoice(picked);
         const isCorrect = picked === words[index].position;
+        const attempt: AttemptData = {
+            word: words[index].word,
+            transcript: picked,
+            score: isCorrect ? 100 : 60,
+            correct: isCorrect,
+            substitution: null,
+        };
+        attemptsRef.current = [...attemptsRef.current, attempt];
+        if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
 
         if (isCorrect) {
             setPhase("celebrating");
@@ -127,8 +180,8 @@ export default function SoundHuntPage() {
         setHintLevel(0); // reset hint for next word
         const next = index + 1;
         if (next >= words.length) {
-            setShowSummary(true);
             setPhase("summary");
+            await completeSession();
         } else {
             setIndex(next);
             setNovaState("idle");
@@ -136,7 +189,57 @@ export default function SoundHuntPage() {
         }
     }
 
-    const accuracy = words.length > 0 ? Math.round((correct / Math.max(index, 1)) * 100) : 0;
+    async function completeSession() {
+        const session = sessionRef.current ?? {
+            sessionId: `hunt-${Date.now()}`,
+            userId: profile?.name ?? "kid",
+            sound: activeSound,
+            startTime: Date.now() - 60000,
+            attempts: attemptsRef.current,
+        };
+        const summary = await endSession(session);
+        const attemptsList = session.attempts?.length ? session.attempts : attemptsRef.current;
+        const acc = summary?.averageAccuracy ?? (attemptsList.length
+            ? Math.round((attemptsList.filter((a) => a.correct).length / attemptsList.length) * 100)
+            : Math.round((correct / TOTAL_ROUNDS) * 100));
+        setFinalAccuracy(acc);
+        setXp(summary?.xpEarned ?? xp);
+
+        try {
+            const msg = await generateSessionCelebration(activeSound.toUpperCase(), attemptsList.length || TOTAL_ROUNDS, acc);
+            setSummaryMessage(msg);
+        } catch {
+            setSummaryMessage(correct >= 6 ? "You're a sound detective! Amazing ears!" : "Great listening practice! You're getting better every time!");
+        }
+
+        try {
+            const resp = await fetch("/api/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(summary.sessionData),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (resp.ok) {
+                setStreak(payload.newStreak ?? streak);
+                setProfile((p) => p ? {
+                    ...p,
+                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
+                    streak: payload.newStreak ?? p.streak,
+                } : p);
+            }
+        } catch { /* ignore */ }
+        setShowSummary(true);
+    }
+
+    useEffect(() => {
+        if (phase !== "showing" || !words[index]) return;
+        (async () => {
+            setNovaState("thinking");
+            await speakAsNova(`Where is the ${activeSound.toUpperCase()} sound in ${words[index].word}? Start, middle, or end?`);
+            setNovaState("idle");
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [index, phase]);
 
     if (!words.length) return (
         <main className="min-h-screen flex items-center justify-center">
@@ -149,10 +252,14 @@ export default function SoundHuntPage() {
             <CelebrationBurst active={showCelebration} />
             {showSummary && (
                 <SessionSummary
-                    accuracy={Math.round((correct / TOTAL_ROUNDS) * 100)}
+                    accuracy={finalAccuracy}
                     xpEarned={xp} wordsCompleted={correct} totalWords={TOTAL_ROUNDS}
-                    message={correct >= 6 ? "You're a sound detective! Amazing ears!" : "Great listening practice! You're getting better every time!"}
-                    onPlayAgain={() => { setIndex(0); setXp(0); setCorrect(0); setPhase("showing"); setShowSummary(false); setNovaState("idle"); }}
+                    message={summaryMessage}
+                    onPlayAgain={() => {
+                        setIndex(0); setXp(0); setCorrect(0); setPhase("showing"); setShowSummary(false); setNovaState("idle"); setHintLevel(0); setFinalAccuracy(0); setSummaryMessage("Great listening practice! You're getting better every time!");
+                        attemptsRef.current = [];
+                        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
+                    }}
                     onDone={() => { window.location.href = "/kid"; }}
                 />
             )}

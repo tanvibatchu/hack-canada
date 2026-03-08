@@ -11,12 +11,13 @@ import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import type { PhonemeResult } from "@/lib/gemini";
+import { generateSessionCelebration } from "@/lib/gemini";
 import { speakAsNova, demonstrateWord } from "@/lib/elevenlabs";
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { getSessionWords, TargetSound, WordEntry } from "@/lib/wordBanks";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 type SessionPhase = "loading" | "greeting" | "demonstrating" | "waiting" | "recording" | "analyzing" | "celebrating" | "redirecting" | "summary";
-type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; };
+type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; totalXP: number; };
 const TOTAL_WORDS = 8;
 const MAX_ATTEMPTS = 3;
 const SCORE_THRESHOLD = 70;
@@ -40,29 +41,55 @@ export default function PracticePage() {
     const [finalAccuracy, setFinalAccuracy] = useState(0);
     const sessionIdRef = useRef<SessionWithId | null>(null);
     const phaseRef = useRef<SessionPhase>("loading");
+    const sessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => { phaseRef.current = phase; }, [phase]);
     useEffect(() => {
         async function loadProfile() {
             try {
                 const res = await fetch("/api/profile");
-                if (res.ok) { const d = await res.json(); setProfile(d); setActiveSound(d.targetSounds?.[0] ?? "r"); }
-                else throw new Error();
+                if (!res.ok) throw new Error("profile fetch failed");
+                const d = await res.json();
+                const p = d?.profile;
+                if (p) {
+                    const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
+                        ? (p.targetSounds as TargetSound[])
+                        : ["r"];
+                    setProfile({
+                        name: p.name ?? "Friend",
+                        age: typeof p.age === "number" ? p.age : 6,
+                        targetSounds: targets,
+                        streak: p.streak ?? 0,
+                        totalXP: p.totalXP ?? p.xp ?? 0,
+                    });
+                    setActiveSound(targets[0] ?? "r");
+                    return;
+                }
             } catch {
-                setProfile({ name: "Maya", age: 6, targetSounds: ["r", "s", "l"], streak: 3 });
+                const fallback = { name: "Maya", age: 6, targetSounds: ["r", "s", "l"] as TargetSound[], streak: 3, totalXP: 0 };
+                setProfile(fallback);
                 setActiveSound("r");
             }
         }
         loadProfile();
     }, []);
-    const initSession = useCallback(async (p: ChildProfile, sound: TargetSound) => {
+    const initSession = useCallback((p: ChildProfile, sound: TargetSound) => {
         setPhase("loading"); setWordIndex(0); setAttempts(0); setXp(0);
         setAllAttempts([]); setShowMouthDiagram(false); setShowSummary(false); setLastResult(null);
         setWords(getSessionWords(sound, TOTAL_WORDS));
-        const session = startSession(MOCK_USER_ID, sound);
+        const session = startSession(p.name || MOCK_USER_ID, sound);
         sessionIdRef.current = session;
+        if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+        sessionTimerRef.current = setTimeout(() => { finishSession(true); }, 5 * 60 * 1000); // 5-minute cap
         setNovaState("idle"); setPhase("greeting");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     useEffect(() => { if (profile) initSession(profile, activeSound); }, [profile, activeSound, initSession]);
+    useEffect(() => {
+        return () => {
+            if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+            stopListening();
+        };
+    }, []);
     useEffect(() => {
         if (phase !== "greeting" || !profile || words.length === 0) return;
         async function greet() {
@@ -94,35 +121,46 @@ export default function PracticePage() {
         if (phase === "recording") { stopListening(); if (phaseRef.current === "recording") setPhase("waiting"); }
     }
     async function handleTranscript(transcript: string) {
+        stopListening();
         const cur = words[wordIndex]; setNovaState("thinking");
-        const res = await fetch("/api/analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ word: cur.word, transcript, targetSound: activeSound, age: profile?.age ?? 6 }),
-        });
-        const raw = await res.json();
-        if (!res.ok || raw.error) { setPhase("waiting"); setNovaState("idle"); return; }
-        const result: PhonemeResult = {
-            ...raw,
-            feedback: raw.feedback || "Good effort! Keep trying!",
-            mouthCue: raw.mouthCue || "Shape your mouth like you're saying the sound.",
-        };
-        setLastResult(result);
-        const attempt: AttemptData = { word: cur.word, transcript, score: result.score, correct: result.correct, substitution: result.substitution };
-        if (sessionIdRef.current) sessionIdRef.current = recordAttempt(sessionIdRef.current, attempt);
-        setAllAttempts(prev => [...prev, attempt]);
-        if (result.correct || result.score >= SCORE_THRESHOLD) await handleCorrect(result);
-        else await handleNeedsWork(result);
+        try {
+            const res = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ word: cur.word, transcript, targetSound: activeSound, age: profile?.age ?? 6 }),
+            });
+            const raw = await res.json();
+            if (!res.ok || raw.error) { setPhase("waiting"); setNovaState("idle"); return; }
+            const result: PhonemeResult = {
+                ...raw,
+                feedback: raw.feedback || "Good effort! Keep trying!",
+                mouthCue: raw.mouthCue || "Shape your mouth like you're saying the sound.",
+            };
+            const isCorrect = result.correct || result.score >= SCORE_THRESHOLD;
+            const normalized: PhonemeResult = { ...result, correct: isCorrect };
+            setLastResult(normalized);
+            const attempt: AttemptData = { word: cur.word, transcript, score: result.score, correct: isCorrect, substitution: result.substitution };
+            if (sessionIdRef.current) sessionIdRef.current = recordAttempt(sessionIdRef.current, attempt);
+            setAllAttempts(prev => [...prev, attempt]);
+            if (isCorrect) await handleCorrect(normalized);
+            else await handleNeedsWork(normalized);
+        } catch (err) {
+            setNovaState("encouraging");
+            setPhase("waiting");
+            await speakAsNova("Let's try that again when you're ready!");
+        }
     }
     async function handleCorrect(result: PhonemeResult) {
         setNovaState("celebrating"); setShowCelebration(true); setXp(p => p + 10); setPhase("celebrating");
-        await speakAsNova(result.feedback);
+        const line = result.feedback || "Amazing! You nailed it!";
+        await speakAsNova(line);
         await new Promise(r => setTimeout(r, 1800));
         setShowCelebration(false); setAttempts(0); advanceWord();
     }
     async function handleNeedsWork(result: PhonemeResult) {
         setNovaState("encouraging"); setPhase("redirecting");
-        if (result.feedback) await speakAsNova(result.feedback);
+        const gentle = result.feedback || "Ooh so close! Watch where my tongue goes — let's try together.";
+        await speakAsNova(gentle);
         setShowMouthDiagram(true);
         if (result.mouthCue) await speakAsNova(result.mouthCue);
         const next = attempts + 1; setAttempts(next);
@@ -135,12 +173,48 @@ export default function PracticePage() {
         if (next >= words.length || next >= TOTAL_WORDS) finishSession();
         else { setWordIndex(next); setNovaState("thinking"); setPhase("demonstrating"); }
     }
-    async function finishSession() {
+    async function finishSession(triggeredByTimer = false) {
+        if (phaseRef.current === "summary") return;
+        if (sessionTimerRef.current) { clearTimeout(sessionTimerRef.current); sessionTimerRef.current = null; }
         setPhase("summary");
-        const summary = sessionIdRef.current ? await endSession(sessionIdRef.current) : null;
+
+        const session = sessionIdRef.current ?? {
+            sessionId: `${MOCK_USER_ID}-${activeSound}-${Date.now()}`,
+            userId: MOCK_USER_ID,
+            sound: activeSound,
+            startTime: Date.now() - 60000,
+            attempts: allAttempts,
+        };
+        const summary = await endSession(session);
         const acc = summary?.averageAccuracy ?? (allAttempts.length > 0 ? Math.round(allAttempts.filter(a => a.correct).length / allAttempts.length * 100) : 0);
         setFinalAccuracy(acc);
-        setSummaryMessage(acc >= 80 ? "You are a speech superstar! I am so proud of you!" : acc >= 60 ? "Fantastic effort today!" : "You showed up and tried your best!");
+        setXp(summary?.xpEarned ?? xp);
+
+        let message = acc >= 80 ? "You are a speech superstar! I am so proud of you!" : acc >= 60 ? "Fantastic effort today!" : "You showed up and tried your best!";
+        try {
+            message = await generateSessionCelebration(activeSound.toUpperCase(), session.attempts.length || TOTAL_WORDS, acc);
+        } catch { /* keep fallback */ }
+        setSummaryMessage(message);
+
+        try {
+            const resp = await fetch("/api/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(summary.sessionData),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (resp.ok) {
+                setProfile((p) => p ? {
+                    ...p,
+                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
+                    streak: payload.newStreak ?? p.streak,
+                } : p);
+            }
+        } catch { /* best effort persist */ }
+
+        if (triggeredByTimer && !summary.sessionData.attempts.length) {
+            setSummaryMessage("Great listening today! Let's play again soon!");
+        }
         setShowSummary(true);
     }
     const completedWords = Math.min(wordIndex + (phase === "celebrating" ? 1 : 0), TOTAL_WORDS);

@@ -14,6 +14,8 @@ import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova } from "@/lib/elevenlabs";
+import { generateSessionCelebration } from "@/lib/gemini";
+import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
 import { startListening, stopListening } from "@/lib/speechCapture";
 
@@ -32,12 +34,14 @@ const SPEAK_UP_WORDS = [
 
 const TOTAL_WORDS = 6;
 type Phase = "intro" | "waiting" | "recording" | "analyzing" | "celebrating" | "redirecting" | "summary";
+type ChildProfile = { name: string; age: number; targetSounds: string[]; streak: number; totalXP: number; };
 
 // Volume levels for the visual intensity meter (0–4 bars)
 const VOLUME_LABELS = ["Too quiet", "Louder!", "Getting there!", "Strong voice!", "PERFECT! 📣"];
 
 export default function SpeakUpPage() {
-    const [streak] = useState(3);
+    const [profile, setProfile] = useState<ChildProfile | null>(null);
+    const [streak, setStreak] = useState(0);
     const [words] = useState(SPEAK_UP_WORDS.slice(0, TOTAL_WORDS));
     const [index, setIndex] = useState(0);
     const [phase, setPhase] = useState<Phase>("intro");
@@ -46,10 +50,41 @@ export default function SpeakUpPage() {
     const [volumeLevel, setVolumeLevel] = useState(0); // 0–4
     const [showCelebration, setShowCelebration] = useState(false);
     const [showSummary, setShowSummary] = useState(false);
+    const [finalAccuracy, setFinalAccuracy] = useState(0);
+    const [summaryMessage, setSummaryMessage] = useState("Great voice power!");
     const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("encouraging");
     const phaseRef = useRef<Phase>("intro");
+    const sessionRef = useRef<SessionWithId | null>(null);
+    const attemptsRef = useRef<AttemptData[]>([]);
 
     useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+    useEffect(() => {
+        async function loadProfile() {
+            try {
+                const res = await fetch("/api/profile");
+                if (!res.ok) throw new Error("profile fetch failed");
+                const data = await res.json();
+                const p = data?.profile;
+                if (p) {
+                    setProfile({
+                        name: p.name ?? "Friend",
+                        age: typeof p.age === "number" ? p.age : 7,
+                        targetSounds: p.targetSounds ?? [],
+                        streak: p.streak ?? 0,
+                        totalXP: p.totalXP ?? p.xp ?? 0,
+                    });
+                    setStreak(p.streak ?? 0);
+                    return;
+                }
+            } catch {
+                const fallback = { name: "Maya", age: 7, targetSounds: [], streak: 1, totalXP: 0 };
+                setProfile(fallback);
+                setStreak(fallback.streak);
+            }
+        }
+        loadProfile();
+    }, []);
 
     useEffect(() => {
         // Brief intro — Nova explains the exercise
@@ -63,66 +98,93 @@ export default function SpeakUpPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    useEffect(() => {
+        attemptsRef.current = [];
+        sessionRef.current = startSession(profile?.name ?? "kid", "voice");
+        setXp(0);
+        setCorrect(0);
+        setVolumeLevel(0);
+    }, [profile?.name]);
+
     function handleMicStart() {
         if (phase !== "waiting") return;
         setVolumeLevel(0);
         setPhase("recording");
 
-        // Simulate ramping volume animation while recording
-        let v = 0;
-        const ramp = setInterval(() => {
-            v = Math.min(v + 1, 3);
-            setVolumeLevel(v);
-        }, 400);
-
         startListening(
-            async (transcript) => {
-                clearInterval(ramp);
+            async (transcript, confidence = 0) => {
                 if (phaseRef.current !== "recording") return;
                 setPhase("analyzing");
                 setNovaState("thinking");
 
-                const res = await fetch("/api/analyze", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ word: words[index].word.toLowerCase(), transcript: transcript.toLowerCase(), targetSound: "r", age: 7 }),
-                });
-                const result = await res.json();
+                const loudScore = Math.min(Math.max(confidence, 0), 1);
+                const volumeBars = Math.max(1, Math.round(loudScore * 4));
+                setVolumeLevel(volumeBars);
 
-                // In the real app, the backend scores voice intensity (dB) and clarity
-                // For UI stub: score >= 50 = good enough loudness
-                const loudEnough = result.score >= 50;
-                const finalVolume = loudEnough ? 4 : Math.floor(Math.random() * 2) + 1;
-                setVolumeLevel(finalVolume);
+                try {
+                    const res = await fetch("/api/analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            word: words[index].word.toLowerCase(),
+                            transcript: transcript.toLowerCase(),
+                            targetSound: "voice",
+                            age: profile?.age ?? 7,
+                        }),
+                    });
+                    const result = await res.json();
+                    const clarityScore = typeof result?.score === "number" ? result.score : 0;
+                    const isLoudEnough = loudScore >= 0.55;
+                    const isClearEnough = clarityScore >= 60;
+                    const isSuccess = isLoudEnough && isClearEnough;
+                    const attemptScore = Math.round((clarityScore + loudScore * 100) / 2);
+                    const attempt: AttemptData = {
+                        word: words[index].word.toLowerCase(),
+                        transcript: transcript.toLowerCase(),
+                        score: attemptScore,
+                        correct: isSuccess,
+                        substitution: result?.substitution ?? null,
+                    };
+                    attemptsRef.current = [...attemptsRef.current, attempt];
+                    if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
 
-                if (loudEnough) {
-                    setNovaState("celebrating");
-                    setShowCelebration(true);
-                    setXp(p => p + 10);
-                    setCorrect(p => p + 1);
-                    setPhase("celebrating");
-                    await speakAsNova(`${VOLUME_LABELS[4]} You said "${words[index].word}" with a powerful voice!`);
-                    await new Promise(r => setTimeout(r, 1600));
-                    setShowCelebration(false);
-                } else {
+                    setVolumeLevel(isSuccess ? 4 : volumeBars);
+
+                    if (isSuccess) {
+                        setNovaState("celebrating");
+                        setShowCelebration(true);
+                        setXp(p => p + 10);
+                        setCorrect(p => p + 1);
+                        setPhase("celebrating");
+                        await speakAsNova(`${VOLUME_LABELS[4]} You said "${words[index].word}" loud AND clear!`);
+                        await new Promise(r => setTimeout(r, 1600));
+                        setShowCelebration(false);
+                    } else {
+                        setNovaState("encouraging");
+                        setPhase("redirecting");
+                        const tip = isLoudEnough ? "Make it super clear like a news anchor!" : words[index].tip;
+                        const encouragement = isClearEnough ? "Even more power from your belly!" : "Open your mouth wide and stretch the vowel!";
+                        await speakAsNova(`Great effort! ${tip} ${encouragement}`);
+                        await new Promise(r => setTimeout(r, 800));
+                    }
+
+                    const next = index + 1;
+                    if (next >= words.length) {
+                        setPhase("summary");
+                        await completeSession();
+                    } else {
+                        setIndex(next);
+                        setVolumeLevel(0);
+                        setNovaState("idle");
+                        setPhase("waiting");
+                    }
+                } catch (err) {
                     setNovaState("encouraging");
-                    setPhase("redirecting");
-                    await speakAsNova(`Good try! ${words[index].tip} Say "${words[index].word}" even LOUDER!`);
-                    await new Promise(r => setTimeout(r, 800));
-                }
-
-                const next = index + 1;
-                if (next >= words.length) {
-                    setShowSummary(true);
-                    setPhase("summary");
-                } else {
-                    setIndex(next);
-                    setVolumeLevel(0);
-                    setNovaState("idle");
                     setPhase("waiting");
+                    await speakAsNova("Let's try that one more time when you're ready!");
                 }
             },
-            () => { setPhase("waiting"); setNovaState("idle"); }
+            () => { setPhase("waiting"); setNovaState("idle"); setVolumeLevel(0); }
         );
     }
 
@@ -133,15 +195,61 @@ export default function SpeakUpPage() {
         }
     }
 
+    async function completeSession() {
+        const session = sessionRef.current ?? {
+            sessionId: `speak-${Date.now()}`,
+            userId: profile?.name ?? "kid",
+            sound: "voice",
+            startTime: Date.now() - 60000,
+            attempts: attemptsRef.current,
+        };
+        const summary = await endSession(session);
+        const attemptsList = session.attempts?.length ? session.attempts : attemptsRef.current;
+        const acc = summary?.averageAccuracy ?? (attemptsList.length
+            ? Math.round((attemptsList.filter((a) => a.correct).length / attemptsList.length) * 100)
+            : Math.round((correct / TOTAL_WORDS) * 100));
+        setFinalAccuracy(acc);
+        setXp(summary?.xpEarned ?? xp);
+
+        try {
+            const msg = await generateSessionCelebration("Voice Power", attemptsList.length || TOTAL_WORDS, acc);
+            setSummaryMessage(msg);
+        } catch {
+            setSummaryMessage(correct >= 4 ? "Amazing voice work! Your vocal cords are getting so strong!" : "Great effort today! Loud practice makes your voice stronger every time!");
+        }
+
+        try {
+            const resp = await fetch("/api/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(summary.sessionData),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (resp.ok) {
+                setStreak(payload.newStreak ?? streak);
+                setProfile((p) => p ? {
+                    ...p,
+                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
+                    streak: payload.newStreak ?? p.streak,
+                } : p);
+            }
+        } catch { /* ignore */ }
+        setShowSummary(true);
+    }
+
     return (
         <>
             <CelebrationBurst active={showCelebration} />
             {showSummary && (
                 <SessionSummary
-                    accuracy={Math.round((correct / TOTAL_WORDS) * 100)}
-                    xpEarned={xp} wordsCompleted={correct} totalWords={TOTAL_WORDS}
-                    message={correct >= 4 ? "Amazing voice work! Your vocal cords are getting so strong!" : "Great effort today! Loud practice makes your voice stronger every time!"}
-                    onPlayAgain={() => { setIndex(0); setXp(0); setCorrect(0); setVolumeLevel(0); setPhase("waiting"); setShowSummary(false); setNovaState("idle"); }}
+                    accuracy={finalAccuracy}
+                    xpEarned={xp} wordsCompleted={Math.min(correct, TOTAL_WORDS)} totalWords={TOTAL_WORDS}
+                    message={summaryMessage}
+                    onPlayAgain={() => {
+                        setIndex(0); setXp(0); setCorrect(0); setVolumeLevel(0); setPhase("waiting"); setShowSummary(false); setNovaState("idle"); setFinalAccuracy(0); setSummaryMessage("Great voice power!");
+                        attemptsRef.current = [];
+                        sessionRef.current = startSession(profile?.name ?? "kid", "voice");
+                    }}
                     onDone={() => { window.location.href = "/kid"; }}
                 />
             )}

@@ -30,7 +30,14 @@ export default function KidMenuPage() {
     useEffect(() => {
         fetch("/api/profile")
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d?.profile) setProfile({ name: d.profile.name, streak: d.profile.streak ?? 3, xp: d.profile.xp ?? 0 }); })
+            .then(d => {
+                const p = d?.profile;
+                if (p) setProfile({
+                    name: p.name ?? "Friend",
+                    streak: p.streak ?? 0,
+                    xp: p.totalXP ?? p.xp ?? 0
+                });
+            })
             .catch(() => { });
         setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
     }, []);

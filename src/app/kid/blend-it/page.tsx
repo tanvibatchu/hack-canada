@@ -15,19 +15,23 @@ import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import type { PhonemeResult } from "@/lib/gemini";
+import { generateSessionCelebration } from "@/lib/gemini";
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { blendData, BlendWord, segmentToSpeech } from "@/lib/blendData";
 import { TargetSound } from "@/lib/wordBanks";
+import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
 type Phase = "loading" | "ready" | "revealing" | "waiting" | "recording" | "analyzing" | "celebrating" | "redirecting" | "summary";
+type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; totalXP: number; };
 
 const TOTAL_WORDS = 6;
 const MAX_ATTEMPTS = 2;
 const SCORE_THRESHOLD = 65;
 
 export default function BlendItPage() {
-    const [activeSound] = useState<TargetSound>("r");
-    const [streak] = useState(3);
+    const [profile, setProfile] = useState<ChildProfile | null>(null);
+    const [activeSound, setActiveSound] = useState<TargetSound>("r");
+    const [streak, setStreak] = useState(0);
     const [words, setWords] = useState<BlendWord[]>([]);
     const [index, setIndex] = useState(0);
     const [phase, setPhase] = useState<Phase>("loading");
@@ -38,6 +42,8 @@ export default function BlendItPage() {
     const [lastResult, setLastResult] = useState<PhonemeResult | null>(null);
     const [showCelebration, setShowCelebration] = useState(false);
     const [showSummary, setShowSummary] = useState(false);
+    const [finalAccuracy, setFinalAccuracy] = useState(0);
+    const [summaryMessage, setSummaryMessage] = useState("Great blending practice!");
     const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
     // ReST rate control — slow (DTTC level 1) vs fast (DTTC level 3)
     const [rateMode, setRateMode] = useState<"slow" | "fast">("slow");
@@ -48,18 +54,56 @@ export default function BlendItPage() {
     // Store current word list for revealWord to access without stale closure
     const wordsRef = useRef<BlendWord[]>([]);
     const indexRef = useRef(0);
+    const sessionRef = useRef<SessionWithId | null>(null);
+    const attemptsRef = useRef<AttemptData[]>([]);
 
     useEffect(() => { phaseRef.current = phase; }, [phase]);
     useEffect(() => { rateModeRef.current = rateMode; }, [rateMode]);
+
+    useEffect(() => {
+        async function loadProfile() {
+            try {
+                const res = await fetch("/api/profile");
+                if (!res.ok) throw new Error("profile fetch failed");
+                const data = await res.json();
+                const p = data?.profile;
+                if (p) {
+                    const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
+                        ? (p.targetSounds as TargetSound[])
+                        : ["r"];
+                    setProfile({
+                        name: p.name ?? "Friend",
+                        age: typeof p.age === "number" ? p.age : 6,
+                        targetSounds: targets,
+                        streak: p.streak ?? 0,
+                        totalXP: p.totalXP ?? p.xp ?? 0,
+                    });
+                    setActiveSound(targets[0] ?? "r");
+                    setStreak(p.streak ?? 0);
+                    return;
+                }
+            } catch {
+                const fallback = { name: "Maya", age: 6, targetSounds: ["r", "s"] as TargetSound[], streak: 1, totalXP: 0 };
+                setProfile(fallback);
+                setActiveSound("r");
+                setStreak(fallback.streak);
+            }
+        }
+        loadProfile();
+    }, []);
 
     useEffect(() => {
         const w = blendData[activeSound].slice(0, TOTAL_WORDS);
         setWords(w);
         wordsRef.current = w;
         loadWord(0, w);
+        attemptsRef.current = [];
+        setXp(0);
+        setCorrect(0);
+        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
         return () => { runIdRef.current++; stopCurrentAudio(); }; // cancel on unmount / Strict Mode remount
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeSound]);
+    }, [activeSound, profile?.name]);
 
     /** Prepare a word for display and show the Start button — does NOT play audio. */
     function loadWord(i: number, wordList: BlendWord[]) {
@@ -127,27 +171,44 @@ export default function BlendItPage() {
         // Stop mic before any TTS plays to prevent echo feedback loop
         stopListening();
         setNovaState("thinking");
-        const res = await fetch("/api/analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ word: wordsRef.current[indexRef.current].word, transcript, targetSound: activeSound, age: 6 }),
-        });
-        const raw = await res.json();
-        if (!res.ok || raw.error) { setPhase("waiting"); setNovaState("idle"); return; }
-        const result: PhonemeResult = {
-            ...raw,
-            feedback: raw.feedback || "Good try! Let's keep going!",
-            mouthCue: raw.mouthCue || "",
-        };
-        setLastResult(result);
+        try {
+            const res = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    word: wordsRef.current[indexRef.current].word,
+                    transcript,
+                    targetSound: activeSound,
+                    age: profile?.age ?? 6,
+                }),
+            });
+            const raw = await res.json();
+            if (!res.ok || raw.error) { setPhase("waiting"); setNovaState("idle"); return; }
+            const result: PhonemeResult = {
+                ...raw,
+                feedback: raw.feedback || "Good try! Let's keep going!",
+                mouthCue: raw.mouthCue || "",
+            };
+            const isCorrect = result.correct || result.score >= SCORE_THRESHOLD;
+            const normalized: PhonemeResult = { ...result, correct: isCorrect };
+            setLastResult(normalized);
+            const attempt: AttemptData = {
+                word: wordsRef.current[indexRef.current].word,
+                transcript,
+                score: result.score,
+                correct: isCorrect,
+                substitution: result.substitution,
+            };
+            attemptsRef.current = [...attemptsRef.current, attempt];
+            if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
 
-        if (result.correct || result.score >= SCORE_THRESHOLD) {
+            if (isCorrect) {
             setNovaState("celebrating");
             setShowCelebration(true);
             setXp(p => p + 10);
             setCorrect(p => p + 1);
             setPhase("celebrating");
-            await speakAsNova(`You blended it! ${result.feedback || "Amazing!"}`);
+            await speakAsNova(`You blended it! ${normalized.feedback || "Amazing!"}`);
             await new Promise(r => setTimeout(r, 1600));
             setShowCelebration(false);
             advanceWord();
@@ -167,18 +228,65 @@ export default function BlendItPage() {
                 revealWord();
             }
         }
+        } catch (err) {
+            setNovaState("encouraging");
+            setPhase("waiting");
+            await speakAsNova("Let's try that word again in a moment!");
+        }
     }
 
     function advanceWord() {
         const next = indexRef.current + 1;
         if (next >= wordsRef.current.length) {
-            setShowSummary(true);
             setPhase("summary");
+            completeSession();
         } else {
             setIndex(next);
             indexRef.current = next;
             loadWord(next, wordsRef.current);
         }
+    }
+
+    async function completeSession() {
+        const session = sessionRef.current ?? {
+            sessionId: `blend-${Date.now()}`,
+            userId: profile?.name ?? "kid",
+            sound: activeSound,
+            startTime: Date.now() - 60000,
+            attempts: attemptsRef.current,
+        };
+        const summary = await endSession(session);
+        const attemptsList = session.attempts?.length ? session.attempts : attemptsRef.current;
+        const acc = summary?.averageAccuracy ?? (attemptsList.length
+            ? Math.round((attemptsList.filter((a) => a.correct).length / attemptsList.length) * 100)
+            : Math.round((correct / TOTAL_WORDS) * 100));
+        setFinalAccuracy(acc);
+        setXp(summary?.xpEarned ?? xp);
+
+        try {
+            const msg = await generateSessionCelebration(activeSound.toUpperCase(), attemptsList.length || TOTAL_WORDS, acc);
+            setSummaryMessage(msg);
+        } catch {
+            setSummaryMessage(correct >= 4 ? "You're a blending champion! Your brain is amazing!" : "Great blending practice! Every try makes you stronger!");
+        }
+
+        try {
+            const resp = await fetch("/api/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(summary.sessionData),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (resp.ok) {
+                setStreak(payload.newStreak ?? streak);
+                setProfile((p) => p ? {
+                    ...p,
+                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
+                    streak: payload.newStreak ?? p.streak,
+                } : p);
+            }
+        } catch { /* ignore */ }
+        setShowSummary(true);
     }
 
     if (!words.length) return (
@@ -194,13 +302,16 @@ export default function BlendItPage() {
             <CelebrationBurst active={showCelebration} />
             {showSummary && (
                 <SessionSummary
-                    accuracy={Math.round((correct / TOTAL_WORDS) * 100)}
-                    xpEarned={xp} wordsCompleted={correct} totalWords={TOTAL_WORDS}
-                    message={correct >= 4 ? "You're a blending champion! Your brain is amazing!" : "Great blending practice! Every try makes you stronger!"}
+                    accuracy={finalAccuracy}
+                    xpEarned={xp} wordsCompleted={Math.min(correct, TOTAL_WORDS)} totalWords={TOTAL_WORDS}
+                    message={summaryMessage}
                     onPlayAgain={() => {
-                        setIndex(0); setXp(0); setCorrect(0); setShowSummary(false);
+                        setIndex(0); setXp(0); setCorrect(0); setShowSummary(false); setFinalAccuracy(0); setSummaryMessage("Great blending practice!");
+                        attemptsRef.current = [];
+                        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
                         const w = blendData[activeSound].slice(0, TOTAL_WORDS);
                         setWords(w); wordsRef.current = w; loadWord(0, w);
+                        setPhase("ready");
                     }}
                     onDone={() => { window.location.href = "/kid"; }}
                 />

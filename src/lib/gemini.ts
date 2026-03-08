@@ -14,7 +14,8 @@ import type {
 export type { PhonemeResult };
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const MODEL = "gemini-2.0-flash";
+// Per product spec, use gemini-1.5-flash (flash-tier) for fast, low-latency feedback
+const MODEL = "gemini-1.5-flash";
 
 function getApiKey(): string {
   const key = process.env.GEMINI_API_KEY;
@@ -57,7 +58,24 @@ export async function analyzePhoneme(
     w = wordOrOpts; t = transcript!; ts = targetSound!; a = age!;
   }
   try {
-    const prompt = `You are a pediatric speech-language pathologist assistant.\nChild age: ${a}\nTarget sound: ${ts}\nTarget word: ${w}\nWhat the child said: ${t}\nRespond in JSON only, no other text:\n{ "correct": boolean, "score": number 0-100, "substitution": string | null, "feedback": string, "mouthCue": string, "tryAgain": boolean }`;
+    // Prompt 1 — Phoneme analysis (kid feedback)
+    const prompt = [
+      "You are a pediatric speech-language pathologist assistant.",
+      `Child age: ${a}`,
+      `Target sound: ${ts}`,
+      `Target word: ${w}`,
+      `What the child said: ${t}`,
+      "Respond in JSON only:",
+      "{",
+      '  "correct": boolean,',
+      '  "score": number (0-100),',
+      '  "substitution": string or null,',
+      '  "feedback": string (max 12 words, child-friendly, encouraging),',
+      '  "mouthCue": string (one sentence about tongue/lip placement),',
+      '  "tryAgain": boolean',
+      "}",
+    ].join("\n");
+
     const raw = await callGemini(prompt);
     return normalizePhonemeResult(JSON.parse(raw) as PhonemeResult);
   } catch (err) { throw err instanceof Error ? err : new Error(String(err)); }
@@ -72,6 +90,33 @@ function normalizePhonemeResult(r: Partial<PhonemeResult>): PhonemeResult {
     mouthCue: String(r?.mouthCue ?? ""),
     tryAgain: Boolean(r?.tryAgain),
   };
+}
+
+/**
+ * Prompt 2 — Session summary celebration line for the child.
+ * Returns a short celebratory sentence (<=15 words).
+ */
+export async function generateSessionCelebration(
+  sound: string,
+  count: number,
+  accuracy: number
+): Promise<string> {
+  const prompt = [
+    "Child just completed a speech practice session.",
+    `Sound: ${sound}, Words attempted: ${count}, Accuracy: ${accuracy}%`,
+    "Write one celebratory sentence (max 15 words) for the child to hear.",
+    'Respond in JSON only: { "message": string }',
+  ].join("\n");
+
+  const raw = await callGemini(prompt);
+  try {
+    const parsed = JSON.parse(raw) as { message?: string };
+    return typeof parsed?.message === "string" && parsed.message.trim()
+      ? parsed.message.trim()
+      : "You did amazing today! I am so proud of you!";
+  } catch {
+    return "You did amazing today! I am so proud of you!";
+  }
 }
 
 export async function analyzeFluency(phrase: string, transcript: string, age: number): Promise<FluencyResult> {
