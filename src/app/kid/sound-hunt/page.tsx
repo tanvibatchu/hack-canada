@@ -13,13 +13,7 @@ import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
-<<<<<<< HEAD
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
-import { generateSessionCelebration } from "@/lib/gemini";
-=======
-import { speakAsNova } from "@/lib/elevenlabs";
-
->>>>>>> 78b9e62c8d615ffbb55dfc709d1c4c7dcd5be608
 import { TargetSound } from "@/lib/wordBanks";
 import { semanticData } from "@/lib/semanticData";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";

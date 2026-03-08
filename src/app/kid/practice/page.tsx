@@ -11,12 +11,7 @@ import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import type { PhonemeResult } from "@/lib/gemini";
-<<<<<<< HEAD
-import { generateSessionCelebration } from "@/lib/gemini";
 import { speakAsNova, demonstrateWord, stopCurrentAudio } from "@/lib/elevenlabs";
-=======
-import { speakAsNova, demonstrateWord } from "@/lib/elevenlabs";
->>>>>>> 78b9e62c8d615ffbb55dfc709d1c4c7dcd5be608
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { getSessionWords, TargetSound, WordEntry } from "@/lib/wordBanks";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
