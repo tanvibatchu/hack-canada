@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const sound = searchParams.get('sound') ?? '';
     const sessions = await getSessions(user.userId, sound);
     return NextResponse.json({ sessions }, { status: 200 });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Not authenticated' },
       { status: 401 }
@@ -31,7 +31,18 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const body = await request.json();
-    const session = body as SessionData;
+    const { completed, ...session } = body as SessionData & { completed?: boolean };
+    console.log("[Session API] POST", {
+      completed,
+      targetSound: session.targetSound,
+      attemptCount: Array.isArray(session.attempts) ? session.attempts.length : 0,
+    });
+    if (completed !== true) {
+      return NextResponse.json(
+        { error: 'Session must include completed: true', skipped: true, xpEarned: 0, newStreak: null },
+        { status: 400 }
+      );
+    }
     await saveSession(user.userId, session);
     const xpEarned = session.attempts.filter((a) => a.correct).length * 10;
     await updateXP(user.userId, xpEarned);
@@ -40,7 +51,7 @@ export async function POST(request: Request) {
       { success: true, xpEarned, newStreak },
       { status: 200 }
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to save session' },
       { status: 500 }

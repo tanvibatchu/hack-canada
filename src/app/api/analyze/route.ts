@@ -1,38 +1,67 @@
-/**
- * POST /api/analyze — Phoneme analysis via Gemini. Body: { word, transcript, targetSound, age }
- * Returns PhonemeResult as JSON.
- */
-
 import { NextRequest, NextResponse } from "next/server";
-import { analyzePhoneme } from "@/lib/gemini";
+import { analyzePronunciationAudio, analyzePhoneme, analyzeVoiceAttempt } from "@/lib/gemini";
+
+function getStringField(formData: FormData, key: string): string {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const word = typeof body?.word === "string" ? body.word : "";
-    const transcript = typeof body?.transcript === "string" ? body.transcript : "";
-    const targetSound = typeof body?.targetSound === "string" ? body.targetSound : "";
-    const age = typeof body?.age === "number" ? body.age : Number(body?.age);
+    const formData = await request.formData();
+    const audio = formData.get("audio");
+    const targetSound = getStringField(formData, "targetSound");
+    const word = getStringField(formData, "word");
+    const transcript = getStringField(formData, "transcript");
+    const ageValue = Number(getStringField(formData, "age"));
+    const age = Number.isFinite(ageValue) && ageValue > 0 ? ageValue : 6;
 
-    if (!word || !transcript || !targetSound) {
+    if (!targetSound || !word) {
       return NextResponse.json(
-        { error: "Missing required fields: word, transcript, targetSound" },
+        { error: "Missing required fields: targetSound and word." },
         { status: 400 }
       );
     }
 
-    const result = await analyzePhoneme(
-      word,
-      transcript,
+    // Speak Up ("voice") mode: stricter — the target word must be recognizable
+    if (targetSound === "voice") {
+      if (!transcript) {
+        // No transcript for voice mode — fall back to a basic check
+        const result = await analyzeVoiceAttempt({ age, targetSound, transcript: word, word });
+        return NextResponse.json(result);
+      }
+      const result = await analyzeVoiceAttempt({ age, targetSound, transcript, word });
+      return NextResponse.json(result);
+    }
+
+    // All other modes: prefer text-based analysis when a transcript is available
+    if (transcript) {
+      const result = await analyzePhoneme({ age, targetSound, transcript, word });
+      return NextResponse.json(result);
+    }
+
+    // Fall back to audio analysis when there is no transcript
+    if (!(audio instanceof File) || audio.size === 0) {
+      return NextResponse.json(
+        { error: "Missing required audio file." },
+        { status: 400 }
+      );
+    }
+
+    const bytes = await audio.arrayBuffer();
+    const audioBase64 = Buffer.from(bytes).toString("base64");
+    const result = await analyzePronunciationAudio({
+      age,
+      audioBase64,
+      mimeType: audio.type || "audio/webm",
       targetSound,
-      Number.isFinite(age) ? age : 5
-    );
+      word,
+    });
+
     return NextResponse.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: `Analysis failed: ${message}` },
-      { status: 500 }
-    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Analysis failed.";
+    console.error("ANALYZE ERROR:", error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

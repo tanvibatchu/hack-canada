@@ -1,475 +1,628 @@
-// app/kid/blend-it/page.tsx — Blend It! exercise for ArtiCue.
-// SLP Basis: Phoneme Blending + DTTC (Dynamic Temporal & Tactile Cueing) + ReST (Rapid Syllable Transition).
-// DTTC: multisensory cueing + hierarchical support. ReST: rate control (slow → fast).
-// Best evidence-based exercise for Childhood Apraxia of Speech (CAS).
-
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Nova from "@/components/Nova";
-import MicButton from "@/components/MicButton";
-import AudioControls from "@/components/AudioControls";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CelebrationBurst from "@/components/CelebrationBurst";
-import XPCounter from "@/components/XPCounter";
-import StreakBadge from "@/components/StreakBadge";
+import MicButton from "@/components/MicButton";
+import Nova from "@/components/Nova";
 import SessionSummary from "@/components/SessionSummary";
+import StreakBadge from "@/components/StreakBadge";
+import XPCounter from "@/components/XPCounter";
+import {
+  ChildProfile,
+  fetchCelebrationMessage,
+  fetchChildProfile,
+  saveCompletedSession,
+  submitAudioForAnalysis,
+} from "@/lib/activityClient";
+import { blendData, segmentToSpeech, type BlendWord } from "@/lib/blendData";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import type { PhonemeResult } from "@/lib/gemini";
-import { startListening, stopListening } from "@/lib/speechCapture";
-import { blendData, BlendWord, segmentToSpeech } from "@/lib/blendData";
-import { TargetSound } from "@/lib/wordBanks";
-import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
+import { startListening, stopListening, type SpeechCaptureResult } from "@/lib/speechCapture";
+import {
+  endSession,
+  recordAttempt,
+  startSession,
+  type AttemptData,
+  type SessionWithId,
+} from "@/lib/sessionManager";
+import type { TargetSound } from "@/lib/wordBanks";
 
-type Phase = "loading" | "ready" | "revealing" | "waiting" | "recording" | "analyzing" | "celebrating" | "redirecting" | "summary";
-type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; totalXP: number; };
+type Phase =
+  | "loading"
+  | "greeting"
+  | "blending"
+  | "waiting"
+  | "recording"
+  | "analyzing"
+  | "celebrating"
+  | "redirecting"
+  | "summary";
 
-const TOTAL_WORDS = 6;
+const CORRECT_VOICE_LINE = "Amazing! You nailed it!";
+const RETRY_VOICE_LINE = "Ooh so close! Let's try together";
+const FALLBACK_PROFILE: ChildProfile = {
+  age: 6,
+  name: "Maya",
+  streak: 2,
+  targetSounds: ["r"],
+  totalXP: 120,
+};
 const MAX_ATTEMPTS = 2;
-const SCORE_THRESHOLD = 65;
-const INTER_SEGMENT_PAUSE_MS = { slow: 220, fast: 120 } as const;
-const SEGMENT_RENDER_BUFFER_MS = 60;
+const SCORE_THRESHOLD = 70;
+const TOTAL_WORDS = 6;
+
+const SOUND_LABELS: Record<TargetSound, string> = {
+  fluency: "smooth speech",
+  l: "L",
+  r: "arr",
+  s: "S",
+  th: "TH",
+};
+
+const RATE_SETTINGS = {
+  fast: { interSyllablePause: 120, speed: 1 },
+  slow: { interSyllablePause: 260, speed: 0.82 },
+} as const;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getFallbackSummaryMessage(accuracy: number): string {
+  if (accuracy >= 85) return "You blended every sound like a champion!";
+  if (accuracy >= 65) return "Your ears and mouth teamed up beautifully today!";
+  return "Each blend made your speech muscles stronger!";
+}
 
 export default function BlendItPage() {
-    const [profile, setProfile] = useState<ChildProfile | null>(null);
-    const [activeSound, setActiveSound] = useState<TargetSound>("r");
-    const [streak, setStreak] = useState(0);
-    const [words, setWords] = useState<BlendWord[]>([]);
-    const [index, setIndex] = useState(0);
-    const [phase, setPhase] = useState<Phase>("loading");
-    const [revealedSegments, setRevealedSegments] = useState(0);
-    const [xp, setXp] = useState(0);
-    const [correct, setCorrect] = useState(0);
-    const [attempts, setAttempts] = useState(0);
-    const [lastResult, setLastResult] = useState<PhonemeResult | null>(null);
-    const [showCelebration, setShowCelebration] = useState(false);
-    const [showSummary, setShowSummary] = useState(false);
-    const [finalAccuracy, setFinalAccuracy] = useState(0);
-    const [summaryMessage, setSummaryMessage] = useState("Great blending practice!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
-    // ReST rate control — slow (DTTC level 1) vs fast (DTTC level 3)
-    const [rateMode, setRateMode] = useState<"slow" | "fast">("slow");
-    const phaseRef = useRef<Phase>("loading");
-    const rateModeRef = useRef<"slow" | "fast">("slow");
-    // Cancellation token: each revealWord call gets a unique ID; stale runs abort themselves
-    const runIdRef = useRef(0);
-    // Store current word list for revealWord to access without stale closure
-    const wordsRef = useRef<BlendWord[]>([]);
-    const indexRef = useRef(0);
-    const sessionRef = useRef<SessionWithId | null>(null);
-    const attemptsRef = useRef<AttemptData[]>([]);
+  const [profile, setProfile] = useState<ChildProfile | null>(null);
+  const [activeSound, setActiveSound] = useState<TargetSound>("r");
+  const [words, setWords] = useState<BlendWord[]>([]);
+  const [wordIndex, setWordIndex] = useState(0);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [xp, setXp] = useState<number | null>(null);
+  const [streak, setStreak] = useState(0);
+  const [revealedSegments, setRevealedSegments] = useState(0);
+  const [attemptsForWord, setAttemptsForWord] = useState(0);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [lastResult, setLastResult] = useState<PhonemeResult | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [sessionXp, setSessionXp] = useState(0);
+  const [summaryMessage, setSummaryMessage] = useState("");
+  const [finalAccuracy, setFinalAccuracy] = useState(0);
+  const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
+  const [rateMode, setRateMode] = useState<"slow" | "fast">("slow");
 
-    useEffect(() => { phaseRef.current = phase; }, [phase]);
-    useEffect(() => { rateModeRef.current = rateMode; }, [rateMode]);
+  const activeSoundRef = useRef<TargetSound>("r");
+  const attemptsForWordRef = useRef(0);
+  const flowIdRef = useRef(0);
+  const isMountedRef = useRef(false);
+  const phaseRef = useRef<Phase>("loading");
+  const profileRef = useRef<ChildProfile | null>(null);
+  const rateModeRef = useRef<"slow" | "fast">("slow");
+  const sessionRef = useRef<SessionWithId | null>(null);
+  const streakRef = useRef(0);
+  const wordsRef = useRef<BlendWord[]>([]);
+  const wordIndexRef = useRef(0);
 
-    useEffect(() => {
-        async function loadProfile() {
-            try {
-                const res = await fetch("/api/profile");
-                if (!res.ok) throw new Error("profile fetch failed");
-                const data = await res.json();
-                const p = data?.profile;
-                if (p) {
-                    const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
-                        ? (p.targetSounds as TargetSound[])
-                        : ["r" as TargetSound];
-                    setProfile({
-                        name: p.name ?? "Friend",
-                        age: typeof p.age === "number" ? p.age : 6,
-                        targetSounds: targets,
-                        streak: p.streak ?? 0,
-                        totalXP: p.totalXP ?? p.xp ?? 0,
-                    });
-                    setActiveSound((targets[0] ?? "r") as TargetSound);
-                    setStreak(p.streak ?? 0);
-                    return;
-                }
-            } catch {
-                const fallback = { name: "Maya", age: 6, targetSounds: ["r", "s"] as TargetSound[], streak: 1, totalXP: 0 };
-                setProfile(fallback);
-                setActiveSound("r");
-                setStreak(fallback.streak);
-            }
+  useEffect(() => {
+    activeSoundRef.current = activeSound;
+  }, [activeSound]);
+
+  useEffect(() => {
+    attemptsForWordRef.current = attemptsForWord;
+  }, [attemptsForWord]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    rateModeRef.current = rateMode;
+  }, [rateMode]);
+
+  useEffect(() => {
+    streakRef.current = streak;
+  }, [streak]);
+
+  useEffect(() => {
+    wordsRef.current = words;
+  }, [words]);
+
+  useEffect(() => {
+    wordIndexRef.current = wordIndex;
+  }, [wordIndex]);
+
+  const isFlowActive = useCallback((flowId: number) => {
+    return isMountedRef.current && flowId === flowIdRef.current;
+  }, []);
+
+  const playBlendSequence = useCallback(
+    async (
+      flowId: number,
+      nextIndex: number,
+      options: { resetAttempts: boolean }
+    ) => {
+      const currentWord = wordsRef.current[nextIndex];
+      if (!currentWord) return;
+
+      if (options.resetAttempts) {
+        attemptsForWordRef.current = 0;
+        setAttemptsForWord(0);
+      }
+
+      setWordIndex(nextIndex);
+      setLastResult(null);
+      setRevealedSegments(0);
+      setFeedbackMessage(`Listen to the sounds in ${currentWord.word}.`);
+      setNovaState("thinking");
+      setPhase("blending");
+
+      const settings = RATE_SETTINGS[rateModeRef.current];
+
+      for (const [segmentIndex, segment] of currentWord.segments.entries()) {
+        if (!isFlowActive(flowId)) return;
+
+        setRevealedSegments(segmentIndex + 1);
+        await wait(100);
+        if (!isFlowActive(flowId)) return;
+
+        await speakAsNova(segmentToSpeech(segment, segmentIndex === 0), settings.speed);
+        if (!isFlowActive(flowId)) return;
+
+        if (segmentIndex < currentWord.segments.length - 1) {
+          await wait(settings.interSyllablePause);
         }
-        loadProfile();
-    }, []);
+      }
 
-    useEffect(() => {
-        const w = blendData[activeSound].slice(0, TOTAL_WORDS);
-        setWords(w);
-        wordsRef.current = w;
-        loadWord(0);
-        attemptsRef.current = [];
-        setXp(0);
-        setCorrect(0);
-        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-        return () => { runIdRef.current += 1; stopCurrentAudio(); stopListening(); }; // cancel on unmount / Strict Mode remount
-    }, [activeSound, profile?.name]);
+      if (!isFlowActive(flowId)) return;
 
-    /** Prepare a word for display and show the Start button — does NOT play audio. */
-    function loadWord(i: number) {
-        runIdRef.current++; // invalidate any in-flight reveal
-        stopCurrentAudio();
-        indexRef.current = i;
-        setRevealedSegments(0);
-        setAttempts(0);
-        setLastResult(null);
-        setNovaState("idle");
-        setPhase("ready");
-    }
+      await speakAsNova(currentWord.word, 1);
+      if (!isFlowActive(flowId)) return;
 
-    /** Play the sounding-out sequence. Called by Start button and Replay button. */
-    async function revealWord() {
-        const runId = ++runIdRef.current;
-        const word = wordsRef.current[indexRef.current];
-        if (!word) return;
+      await speakAsNova("Now blend it!");
+      if (!isFlowActive(flowId)) return;
 
-        setRevealedSegments(0);
-        setPhase("revealing");
-        setNovaState("thinking");
+      setNovaState("idle");
+      setPhase("waiting");
+      setFeedbackMessage(`Your turn. Say ${currentWord.word}.`);
+    },
+    [isFlowActive]
+  );
 
-        const pauseMs = INTER_SEGMENT_PAUSE_MS[rateModeRef.current];
-        // Small warmup so first phoneme never clips
-        await new Promise(r => setTimeout(r, 120));
+  const finishSession = useCallback(
+    async (flowId: number) => {
+      if (phaseRef.current === "summary") {
+        return;
+      }
 
-        for (const [segmentIndex, segment] of word.segments.entries()) {
-            if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-            setRevealedSegments(segmentIndex + 1);
-            await new Promise(r => setTimeout(r, SEGMENT_RENDER_BUFFER_MS));
-            if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-            await speakAsNova(segmentToSpeech(segment, segmentIndex === 0), 0.82);
-            if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-            if (segmentIndex < word.segments.length - 1) {
-                await new Promise(r => setTimeout(r, pauseMs));
+      setPhase("summary");
+      setNovaState("celebrating");
+
+      const session = sessionRef.current ?? startSession(profileRef.current?.name ?? "kid", activeSoundRef.current);
+      const summary = await endSession(session);
+      const accuracy = summary.averageAccuracy;
+      const fallbackMessage = getFallbackSummaryMessage(accuracy);
+      const celebrationMessage = await fetchCelebrationMessage({
+        accuracy,
+        count: summary.sessionData.attempts.length || wordsRef.current.length,
+        fallback: fallbackMessage,
+        sound: SOUND_LABELS[activeSoundRef.current],
+      });
+
+      let earnedXp = summary.xpEarned;
+      let updatedStreak = streakRef.current;
+
+      try {
+        const saved = await saveCompletedSession(summary.sessionData);
+        earnedXp = saved.xpEarned;
+        updatedStreak = saved.newStreak ?? updatedStreak;
+      } catch {
+        /* keep local summary if persistence fails */
+      }
+
+      if (!isFlowActive(flowId)) return;
+
+      setFinalAccuracy(accuracy);
+      setSessionXp(earnedXp);
+      setSummaryMessage(celebrationMessage);
+      setShowSummary(true);
+
+      if (earnedXp > 0) {
+        setXp((currentXp) => (currentXp ?? profileRef.current?.totalXP ?? 0) + earnedXp);
+      }
+
+      setStreak(updatedStreak);
+      setProfile((currentProfile) =>
+        currentProfile
+          ? {
+              ...currentProfile,
+              streak: updatedStreak,
+              totalXP: currentProfile.totalXP + earnedXp,
             }
-        }
+          : currentProfile
+      );
+    },
+    [isFlowActive]
+  );
 
-        if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-        // Say the full word after all segments so the child hears the blend target
-        await speakAsNova(word.word);
-        if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-        await speakAsNova("Now you blend it!");
-        if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-        setNovaState("idle");
+  const analyzeCapture = useCallback(
+    async (capture: SpeechCaptureResult) => {
+      const currentProfile = profileRef.current;
+      const currentWord = wordsRef.current[wordIndexRef.current];
+      const flowId = flowIdRef.current;
+
+      if (!currentProfile || !currentWord) {
         setPhase("waiting");
-    }
+        return;
+      }
 
-    function handleMicStart() {
-        if (phase !== "waiting") return;
-        setPhase("recording");
-        startListening(
-            (transcript) => {
-                if (phaseRef.current !== "recording") return;
-                setPhase("analyzing");
-                handleTranscript(transcript);
-            },
-            () => setPhase("waiting")
-        );
-    }
+      setNovaState("thinking");
+      setFeedbackMessage("Nova is checking your blend...");
 
-    function handleMicStop() {
-        if (phase === "recording") {
-            stopListening();
-            if (phaseRef.current === "recording") setPhase("waiting");
-        }
-    }
+      try {
+        const rawResult = await submitAudioForAnalysis({
+          age: currentProfile.age,
+          audio: capture.blob,
+          targetSound: activeSoundRef.current,
+          transcript: capture.transcript,
+          word: currentWord.word,
+        });
 
-    async function handleTranscript(transcript: string) {
-        // Stop mic before any TTS plays to prevent echo feedback loop
-        stopListening();
-        setNovaState("thinking");
-        try {
-            const res = await fetch("/api/analyze", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    word: wordsRef.current[indexRef.current].word,
-                    transcript,
-                    targetSound: activeSound,
-                    age: profile?.age ?? 6,
-                }),
-            });
-            const raw = await res.json();
-            if (!res.ok || raw.error) { setPhase("waiting"); setNovaState("idle"); return; }
-            const result: PhonemeResult = {
-                ...raw,
-                feedback: raw.feedback || "Good try! Let's keep going!",
-                mouthCue: raw.mouthCue || "",
-            };
-            const isCorrect = result.correct || result.score >= SCORE_THRESHOLD;
-            const normalized: PhonemeResult = { ...result, correct: isCorrect };
-            setLastResult(normalized);
-            const attempt: AttemptData = {
-                word: wordsRef.current[indexRef.current].word,
-                transcript,
-                score: result.score,
-                correct: isCorrect,
-                substitution: result.substitution,
-            };
-            attemptsRef.current = [...attemptsRef.current, attempt];
-            if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
+        if (!isFlowActive(flowId)) return;
 
-            if (isCorrect) {
-                setNovaState("celebrating");
-                setShowCelebration(true);
-                setXp(p => p + 10);
-                setCorrect(p => p + 1);
-                setPhase("celebrating");
-                await speakAsNova(`You blended it! ${normalized.feedback || "Amazing!"}`);
-                await new Promise(r => setTimeout(r, 1600));
-                setShowCelebration(false);
-                advanceWord();
-            } else {
-                setNovaState("incorrect");
-                setPhase("redirecting");
-                const nextAttempts = attempts + 1;
-                setAttempts(nextAttempts);
-                if (result.feedback) await speakAsNova(result.feedback);
-
-                if (nextAttempts >= MAX_ATTEMPTS) {
-                    await speakAsNova(`The word was ${wordsRef.current[indexRef.current].word}! Let's try the next one!`);
-                    advanceWord();
-                } else {
-                    await speakAsNova("Let's hear the sounds again…");
-                    await new Promise(r => setTimeout(r, 300));
-                    await revealWord();
-                }
-            }
-        } catch {
-            setNovaState("incorrect");
-            setPhase("waiting");
-            await speakAsNova("Let's try that word again in a moment!");
-        }
-    }
-
-    function advanceWord() {
-        const next = indexRef.current + 1;
-        if (next >= wordsRef.current.length) {
-            setPhase("summary");
-            completeSession();
-        } else {
-            setIndex(next);
-            indexRef.current = next;
-            loadWord(next);
-        }
-    }
-
-    async function completeSession() {
-        const session = sessionRef.current ?? {
-            sessionId: `blend-${Date.now()}`,
-            userId: profile?.name ?? "kid",
-            sound: activeSound,
-            startTime: Date.now() - 60000,
-            attempts: attemptsRef.current,
+        const normalizedResult: PhonemeResult = {
+          ...rawResult,
+          correct: rawResult.correct || rawResult.score >= SCORE_THRESHOLD,
         };
-        const summary = await endSession(session);
-        const attemptsList = session.attempts?.length ? session.attempts : attemptsRef.current;
-        const acc = summary?.averageAccuracy ?? (attemptsList.length
-            ? Math.round((attemptsList.filter((a) => a.correct).length / attemptsList.length) * 100)
-            : Math.round((correct / TOTAL_WORDS) * 100));
-        setFinalAccuracy(acc);
-        setXp(summary?.xpEarned ?? xp);
+        const attempt: AttemptData = {
+          correct: normalizedResult.correct,
+          score: normalizedResult.score,
+          substitution: normalizedResult.substitution,
+          transcript: capture.transcript || "[audio capture]",
+          word: currentWord.word,
+        };
 
-        try {
-            const celebRes = await fetch("/api/celebrate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sound: activeSound.toUpperCase(), count: attemptsList.length || TOTAL_WORDS, accuracy: acc }),
-            });
-            const celebData = await celebRes.json();
-            if (celebData.message) setSummaryMessage(celebData.message);
-        } catch {
-            setSummaryMessage(correct >= 4 ? "You're a blending champion! Your brain is amazing!" : "Great blending practice! Every try makes you stronger!");
+        setLastResult(normalizedResult);
+        sessionRef.current = recordAttempt(sessionRef.current ?? startSession(currentProfile.name, activeSoundRef.current), attempt);
+
+        if (normalizedResult.correct) {
+          setPhase("celebrating");
+          setFeedbackMessage(normalizedResult.feedback);
+          setShowCelebration(true);
+          setNovaState("celebrating");
+          await speakAsNova(CORRECT_VOICE_LINE);
+          if (!isFlowActive(flowId)) return;
+
+          setShowCelebration(false);
+          const nextIndex = wordIndexRef.current + 1;
+          if (nextIndex >= wordsRef.current.length) {
+            await finishSession(flowId);
+            return;
+          }
+
+          await playBlendSequence(flowId, nextIndex, { resetAttempts: true });
+          return;
         }
 
-        try {
-            const resp = await fetch("/api/session", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(summary.sessionData),
-            });
-            const payload = await resp.json().catch(() => ({}));
-            if (resp.ok) {
-                setStreak(payload.newStreak ?? streak);
-                setProfile((p) => p ? {
-                    ...p,
-                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
-                    streak: payload.newStreak ?? p.streak,
-                } : p);
-            }
-        } catch { /* ignore */ }
-        setShowSummary(true);
+        const nextAttempts = attemptsForWordRef.current + 1;
+        attemptsForWordRef.current = nextAttempts;
+        setAttemptsForWord(nextAttempts);
+        setPhase("redirecting");
+        setNovaState("encouraging");
+        setFeedbackMessage(normalizedResult.feedback || RETRY_VOICE_LINE);
+
+        await speakAsNova(RETRY_VOICE_LINE);
+        if (!isFlowActive(flowId)) return;
+
+        if (normalizedResult.mouthCue) {
+          await speakAsNova(normalizedResult.mouthCue);
+          if (!isFlowActive(flowId)) return;
+        }
+
+        if (nextAttempts >= MAX_ATTEMPTS) {
+          const nextIndex = wordIndexRef.current + 1;
+          if (nextIndex >= wordsRef.current.length) {
+            await finishSession(flowId);
+            return;
+          }
+
+          await playBlendSequence(flowId, nextIndex, { resetAttempts: true });
+          return;
+        }
+
+        await playBlendSequence(flowId, wordIndexRef.current, { resetAttempts: false });
+      } catch {
+        if (!isFlowActive(flowId)) return;
+        setNovaState("encouraging");
+        setPhase("waiting");
+        setFeedbackMessage("Let's try that blend again.");
+      }
+    },
+    [finishSession, isFlowActive, playBlendSequence]
+  );
+
+  const beginSession = useCallback(
+    async (nextProfile: ChildProfile, nextSound: TargetSound) => {
+      stopListening({ cancel: true });
+      stopCurrentAudio();
+
+      const flowId = ++flowIdRef.current;
+      const sessionWords = blendData[nextSound].slice(0, TOTAL_WORDS);
+
+      sessionRef.current = startSession(nextProfile.name, nextSound);
+      wordsRef.current = sessionWords;
+      wordIndexRef.current = 0;
+      attemptsForWordRef.current = 0;
+      activeSoundRef.current = nextSound;
+
+      setActiveSound(nextSound);
+      setWords(sessionWords);
+      setWordIndex(0);
+      setAttemptsForWord(0);
+      setRevealedSegments(0);
+      setFeedbackMessage("");
+      setLastResult(null);
+      setShowCelebration(false);
+      setShowSummary(false);
+      setSessionXp(0);
+      setSummaryMessage("");
+      setFinalAccuracy(0);
+      setNovaState("encouraging");
+      setPhase("greeting");
+
+      await speakAsNova(`Hi ${nextProfile.name}, let's blend your ${SOUND_LABELS[nextSound]} sounds together.`);
+      if (!isFlowActive(flowId)) return;
+
+      await playBlendSequence(flowId, 0, { resetAttempts: true });
+    },
+    [isFlowActive, playBlendSequence]
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    void (async () => {
+      const nextProfile = await fetchChildProfile(FALLBACK_PROFILE);
+      if (!isMountedRef.current) return;
+
+      const nextSound = nextProfile.targetSounds[0] ?? "r";
+      setProfile(nextProfile);
+      setXp(nextProfile.totalXP);
+      setStreak(nextProfile.streak);
+      setActiveSound(nextSound);
+
+      await beginSession(nextProfile, nextSound);
+    })();
+
+    return () => {
+      isMountedRef.current = false;
+      flowIdRef.current += 1;
+      stopListening({ cancel: true });
+      stopCurrentAudio();
+    };
+  }, [beginSession]);
+
+  const handleMicStart = useCallback(() => {
+    if (phaseRef.current !== "waiting") {
+      return;
     }
 
-    if (!words.length) return (
-        <main className="min-h-screen flex items-center justify-center">
-            <div className="text-6xl animate-[nova-idle_3s_ease-in-out_infinite]">🌟</div>
-        </main>
+    setPhase("recording");
+    setFeedbackMessage("Hold the mic while you blend the whole word.");
+
+    void startListening(
+      (capture) => {
+        if (!isMountedRef.current || phaseRef.current !== "recording") return;
+        setPhase("analyzing");
+        void analyzeCapture(capture);
+      },
+      (message) => {
+        if (!isMountedRef.current) return;
+        setFeedbackMessage(message);
+        setPhase("waiting");
+      }
     );
+  }, [analyzeCapture]);
 
-    const currentWord = words[index];
+  const handleMicStop = useCallback(() => {
+    if (phaseRef.current === "recording") {
+      stopListening();
+    }
+  }, []);
 
+  if (!profile || xp === null) {
     return (
-        <>
-            <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
-                body {
-                    background: #F9F4F1;
-                    font-family: 'Nunito', sans-serif;
-                }
-            `}</style>
-            <CelebrationBurst active={showCelebration} />
-            {showSummary && (
-                <SessionSummary
-                    accuracy={finalAccuracy}
-                    xpEarned={xp} wordsCompleted={Math.min(correct, TOTAL_WORDS)} totalWords={TOTAL_WORDS}
-                    message={summaryMessage}
-                    onPlayAgain={() => {
-                        setIndex(0); setXp(0); setCorrect(0); setShowSummary(false); setFinalAccuracy(0); setSummaryMessage("Great blending practice!");
-                        attemptsRef.current = [];
-                        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-                        const w = blendData[activeSound].slice(0, TOTAL_WORDS);
-                        setWords(w); wordsRef.current = w; loadWord(0);
-                        setPhase("ready");
-                    }}
-                    onDone={() => { window.location.href = "/kid"; }}
-                />
-            )}
-
-            <main className="min-h-screen flex flex-col items-center px-4 md:px-8 pt-6 md:pt-12 pb-24 gap-6 md:gap-12 max-w-3xl md:max-w-5xl mx-auto w-full md:px-12">
-                {/* Top bar */}
-                <div className="w-full flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Link href="/kid" className="text-[#945F95] hover:text-[#390052] transition-colors text-2xl" aria-label="Back">←</Link>
-                        <StreakBadge streak={streak} />
-                    </div>
-                    <XPCounter xp={xp} />
-                </div>
-
-                {/* Mode pill — with DTTC label for practitioners */}
-                <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
-                    <span className="text-lg">🔤</span>
-                    <span className="text-sm font-black text-[#945F95]">Blend It!</span>
-                    <span className="text-xs text-emerald-400 ml-1">DTTC · Apraxia</span>
-                </div>
-
-                {/* ReST Rate Control — slow/fast toggle (Rapid Syllable Transition Training) */}
-                <div className="flex items-center gap-2 bg-white/5 rounded-2xl p-1 border border-white/10 self-center">
-                    <button
-                        onClick={() => setRateMode("slow")}
-                        className={["flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-black transition-all duration-200",
-                            rateMode === "slow" ? "bg-[#58CC02] scale-125 text-[#390052] shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "text-[#945F95] hover:text-[#390052]"
-                        ].join(" ")}
-                        title="Slow: longer pauses between sounds (DTTC Level 1)"
-                    >
-                        🐢 Slow
-                    </button>
-                    <button
-                        onClick={() => setRateMode("fast")}
-                        className={["flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-black transition-all duration-200",
-                            rateMode === "fast" ? "bg-[#58CC02] scale-125 text-[#390052] shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "text-[#945F95] hover:text-[#390052]"
-                        ].join(" ")}
-                        title="Fast: short transitions between sounds (ReST training)"
-                    >
-                        🐇 Fast
-                    </button>
-                </div>
-
-                {/* Nova */}
-                <div className="flex-shrink-0 mt-1">
-                    <Nova state={novaState} size="lg" />
-                </div>
-
-                {/* Instruction */}
-                <div className="text-center px-4">
-                    <p className="text-[#945F95] text-sm uppercase tracking-widest mb-1">
-                        {phase === "ready" ? "Ready to listen?" : phase === "revealing" ? "Listen to each sound…" : phase === "waiting" ? "Now blend them!" : phase === "recording" ? "I'm listening…" : phase === "celebrating" ? (lastResult?.feedback ?? "Amazing!") : ""}
-                    </p>
-                    <p className="text-[#390052] text-xl font-black">
-                        {phase === "ready" && "Tap Start to hear the sounds 🔊"}
-                        {phase === "waiting" && "Say the whole word! 🎤"}
-                        {phase === "analyzing" && "Nova is thinking… 💭"}
-                        {phase === "redirecting" && (lastResult?.feedback ?? "So close! Try again!")}
-                    </p>
-                </div>
-
-                {/* Segment tiles */}
-                {currentWord && (
-                    <div className="flex flex-col items-center gap-4 px-6 py-5 rounded-3xl bg-white/5 backdrop-blur-md border border-purple-400/30 w-full max-w-sm md:max-w-lg">
-                        <span className="text-6xl">{currentWord.emoji}</span>
-
-                        {/* Segment display */}
-                        <div className="flex flex-wrap justify-center gap-2">
-                            {currentWord.segments.map((seg, i) => (
-                                <div key={i} className={[
-                                    "px-4 py-2 rounded-xl text-xl font-black transition-all duration-500",
-                                    i < revealedSegments
-                                        ? "bg-[#CE7DA5] scale-125/60 text-[#390052] border border-purple-400/60 shadow-[0_0_12px_rgba(124,58,237,0.4)]"
-                                        : "bg-white/5 text-[#390052]/20 border border-white/10",
-                                ].join(" ")}>
-                                    {i < revealedSegments ? seg : "·"}
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Full display string (shown after all revealed) */}
-                        {revealedSegments >= currentWord.segments.length && (
-                            <p className="text-[#945F95] text-lg font-mono tracking-widest animate-[fade-in_0.4s_ease-out]">
-                                {currentWord.display}
-                            </p>
-                        )}
-                    </div>
-                )}
-
-                {/* Start button (ready phase) */}
-                {phase === "ready" && (
-                    <button
-                        onClick={revealWord}
-                        className="mt-2 px-8 py-4 bg-[#CE7DA5] scale-125 hover:bg-purple-500 active:scale-95 text-[#390052] text-lg font-black rounded-2xl shadow-lg shadow-purple-500/40 transition-all duration-200 flex items-center gap-2"
-                    >
-                        🔊 Start
-                    </button>
-                )}
-
-                {/* Mic + Replay buttons (waiting phase) */}
-                {(phase === "waiting" || phase === "recording") && (
-                    <div className="flex flex-col items-center gap-4 mt-2">
-                        <MicButton
-                            onStart={handleMicStart}
-                            onStop={handleMicStop}
-                            isRecording={phase === "recording"}
-                            disabled={phase !== "waiting"}
-                        />
-                        <AudioControls disabled={phase === "recording"} />
-                    </div>
-                )}
-
-                {/* Mic button for non-waiting/ready phases (disabled) */}
-                {phase !== "waiting" && phase !== "recording" && phase !== "ready" && (
-                    <div className="flex flex-col items-center mt-2">
-                        <MicButton
-                            onStart={handleMicStart}
-                            onStop={handleMicStop}
-                            isRecording={false}
-                            disabled={true}
-                        />
-                    </div>
-                )}
-
-                <div className="flex-1" />
-
-                {/* Progress dots */}
-                <div className="flex flex-col items-center gap-2 pb-2">
-                    <p className="text-xs text-[#945F95]">Word {Math.min(index + 1, TOTAL_WORDS)} of {TOTAL_WORDS}</p>
-                    <div className="flex gap-2">
-                        {Array.from({ length: TOTAL_WORDS }).map((_, i) => (
-                            <div key={i} className={["w-3 h-3 rounded-full transition-all duration-500",
-                                i < index ? "bg-[#CE7DA5]" : i === index ? "bg-[#CE7DA5] scale-125 " : "bg-[rgba(57,0,82,0.1)]"
-                            ].join(" ")} />
-                        ))}
-                    </div>
-                </div>
-            </main>
-        </>
+      <main className="flex min-h-screen items-center justify-center bg-[#F9F4F1]">
+        <div className="text-5xl">⭐</div>
+      </main>
     );
+  }
+
+  const currentWord = words[wordIndex];
+  const completedWords = showSummary ? words.length : wordIndex;
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
+        body {
+          background: #F9F4F1;
+          font-family: 'Nunito', sans-serif;
+        }
+      `}</style>
+
+      <CelebrationBurst active={showCelebration} />
+
+      {showSummary ? (
+        <SessionSummary
+          accuracy={finalAccuracy}
+          message={summaryMessage}
+          onDone={() => {
+            window.location.href = "/kid";
+          }}
+          onPlayAgain={() => {
+            if (!profileRef.current) return;
+            void beginSession(profileRef.current, activeSoundRef.current);
+          }}
+          totalWords={words.length}
+          wordsCompleted={words.length}
+          xpEarned={sessionXp}
+        />
+      ) : null}
+
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center gap-8 px-4 pb-24 pt-8 md:px-10">
+        <div className="flex w-full items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              aria-label="Back to kid activities"
+              className="text-xl font-black text-[#945F95] transition-colors hover:text-[#390052]"
+              href="/kid"
+            >
+              Back
+            </Link>
+            <StreakBadge streak={streak} />
+          </div>
+          <XPCounter xp={xp} />
+        </div>
+
+        <div className="rounded-full border-2 border-[rgba(57,0,82,0.1)] bg-white px-5 py-2 text-sm font-black uppercase tracking-[0.28em] text-[#945F95]">
+          Blend It
+        </div>
+
+        <div className="flex items-center gap-2 rounded-full bg-white px-2 py-2">
+          {(["slow", "fast"] as const).map((mode) => (
+            <button
+              key={mode}
+              className="rounded-full px-4 py-2 text-sm font-black uppercase tracking-[0.2em] transition-colors"
+              onClick={() => setRateMode(mode)}
+              style={{
+                background: rateMode === mode ? "#CE7DA5" : "transparent",
+                color: rateMode === mode ? "#FFFFFF" : "#945F95",
+              }}
+              type="button"
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+
+        <Nova size="lg" state={novaState} />
+
+        <div className="min-h-24 text-center">
+          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#945F95]">
+            {phase === "greeting" && "Nova is getting ready"}
+            {phase === "blending" && "Listen to each sound"}
+            {phase === "waiting" && "Your turn"}
+            {phase === "recording" && "Recording"}
+            {phase === "analyzing" && "Listening back"}
+            {phase === "celebrating" && "Beautiful blending"}
+            {phase === "redirecting" && "Try it together"}
+          </p>
+          <p className="mt-3 text-2xl font-black text-[#390052]">
+            {feedbackMessage || (currentWord ? `Blend ${currentWord.word}.` : "Loading your blend...")}
+          </p>
+          {lastResult?.mouthCue ? (
+            <p className="mt-2 text-base font-bold text-[#945F95]">{lastResult.mouthCue}</p>
+          ) : null}
+        </div>
+
+        {currentWord ? (
+          <div className="w-full max-w-xl rounded-[28px] border-2 border-[rgba(57,0,82,0.1)] bg-white p-8 text-center">
+            <div className="text-6xl">{currentWord.emoji}</div>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              {currentWord.segments.map((segment, index) => (
+                <div
+                  key={`${segment}-${index}`}
+                  className="rounded-2xl px-4 py-3 text-2xl font-black transition-all duration-200"
+                  style={{
+                    background:
+                      index < revealedSegments ? "#CE7DA5" : "rgba(57, 0, 82, 0.08)",
+                    color: index < revealedSegments ? "#FFFFFF" : "#945F95",
+                    transform: index < revealedSegments ? "scale(1.08)" : "scale(1)",
+                  }}
+                >
+                  {index < revealedSegments ? segment : "·"}
+                </div>
+              ))}
+            </div>
+            <p className="mt-5 text-3xl font-black tracking-[0.2em] text-[#390052]">
+              {currentWord.word}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col items-center gap-4">
+          <MicButton
+            disabled={!["waiting", "recording"].includes(phase)}
+            isRecording={phase === "recording"}
+            onStart={handleMicStart}
+            onStop={handleMicStop}
+          />
+
+          <button
+            className="rounded-full border-2 border-[rgba(57,0,82,0.1)] bg-white px-5 py-2 text-sm font-black uppercase tracking-[0.24em] text-[#945F95]"
+            disabled={!["waiting", "recording"].includes(phase)}
+            onClick={() => {
+              if (phase === "recording") {
+                stopListening({ cancel: true });
+              }
+
+              stopCurrentAudio();
+              void playBlendSequence(flowIdRef.current, wordIndexRef.current, {
+                resetAttempts: false,
+              });
+            }}
+            style={{
+              opacity: ["waiting", "recording"].includes(phase) ? 1 : 0.5,
+            }}
+            type="button"
+          >
+            Replay Sounds
+          </button>
+        </div>
+
+        {attemptsForWord > 0 ? (
+          <div className="flex items-center gap-2">
+            {Array.from({ length: MAX_ATTEMPTS }).map((_, index) => (
+              <div
+                key={index}
+                className="h-3 w-3 rounded-full"
+                style={{
+                  background:
+                    index < attemptsForWord ? "#CE7DA5" : "rgba(57, 0, 82, 0.12)",
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-auto flex flex-col items-center gap-3">
+          <p className="text-sm font-bold text-[#945F95]">
+            Word {Math.min(wordIndex + 1, words.length || TOTAL_WORDS)} of {words.length || TOTAL_WORDS}
+          </p>
+          <div className="flex gap-2">
+            {Array.from({ length: words.length || TOTAL_WORDS }).map((_, index) => (
+              <div
+                key={index}
+                className="h-3 w-3 rounded-full transition-all duration-200"
+                style={{
+                  background:
+                    index < completedWords
+                      ? "#CE7DA5"
+                      : index === wordIndex
+                        ? "#945F95"
+                        : "rgba(57, 0, 82, 0.12)",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </main>
+    </>
+  );
 }

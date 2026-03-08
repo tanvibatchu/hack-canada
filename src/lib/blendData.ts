@@ -9,7 +9,7 @@
 // For sonorants we repeat the character(s). For stops we can't truly stretch them
 // so we use the word as-is (the word context alone improves ElevenLabs accuracy).
 const PHONEME_STRETCH: Record<string, string> = {
-    "r": "rrrrr",
+    "r": "ruhhh",
     "l": "lllll",
     "m": "mmmmm",
     "n": "nnnnn",
@@ -26,7 +26,7 @@ const PHONEME_STRETCH: Record<string, string> = {
 
 // PHONEME_SOLO: isolated phoneme sound when there's no word context.
 const PHONEME_SOLO: Record<string, string> = {
-    "r": "rrr", "l": "lll", "m": "mmm", "n": "nnn",
+    "r": "ruh", "l": "lll", "m": "mmm", "n": "nnn",
     "s": "sss", "f": "fff", "v": "vvv", "z": "zzz",
     "w": "wuh", "y": "yuh",
     // Stop consonants — use open "a" vowel; schwa "uh" diphthongs to "ua" at slow speed

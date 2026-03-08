@@ -1,321 +1,593 @@
-// app/kid/rhyme-time/page.tsx — Rhyme Time exercise for ArtiCue.
-// SLP Skill: Phonological Awareness — Tap the word that rhymes with Nova's word.
-// Tap-only interaction, no mic needed. 8 rounds per session.
-
 "use client";
 
-import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import Nova from "@/components/Nova";
-import ChoiceButton from "@/components/ChoiceButton";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CelebrationBurst from "@/components/CelebrationBurst";
-import XPCounter from "@/components/XPCounter";
-import StreakBadge from "@/components/StreakBadge";
-import AudioControls from "@/components/AudioControls";
+import ChoiceButton from "@/components/ChoiceButton";
+import MicButton from "@/components/MicButton";
+import Nova from "@/components/Nova";
 import SessionSummary from "@/components/SessionSummary";
+import StreakBadge from "@/components/StreakBadge";
+import XPCounter from "@/components/XPCounter";
+import {
+  ChildProfile,
+  fetchCelebrationMessage,
+  fetchChildProfile,
+  saveCompletedSession,
+  submitAudioForAnalysis,
+} from "@/lib/activityClient";
 import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
-import { rhymeData, RhymeChallenge } from "@/lib/rhymeData";
-import { TargetSound } from "@/lib/wordBanks";
+import type { PhonemeResult } from "@/lib/gemini";
+import { rhymeData, type RhymeChallenge } from "@/lib/rhymeData";
+import { startListening, stopListening, type SpeechCaptureResult } from "@/lib/speechCapture";
+import {
+  endSession,
+  recordAttempt,
+  startSession,
+  type AttemptData,
+  type SessionWithId,
+} from "@/lib/sessionManager";
+import type { TargetSound } from "@/lib/wordBanks";
 
-import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
+type Phase =
+  | "loading"
+  | "greeting"
+  | "asking"
+  | "waiting"
+  | "recording"
+  | "analyzing"
+  | "celebrating"
+  | "redirecting"
+  | "summary";
 
-type Phase = "showing" | "answered" | "celebrating" | "redirecting" | "summary";
-type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; streak: number; totalXP: number; };
+const CORRECT_VOICE_LINE = "Amazing! You nailed it!";
+const RETRY_VOICE_LINE = "Ooh so close! Let's try together";
+const FALLBACK_PROFILE: ChildProfile = {
+  age: 7,
+  name: "Maya",
+  streak: 2,
+  targetSounds: ["r"],
+  totalXP: 120,
+};
+const MAX_ATTEMPTS = 2;
+const SCORE_THRESHOLD = 70;
+const TOTAL_ROUNDS = 6;
 
-const TOTAL_ROUNDS = 8;
-
-function shuffle<T>(arr: T[]): T[] {
-    return [...arr].sort(() => Math.random() - 0.5);
+function shuffle<T>(items: T[]): T[] {
+  return [...items].sort(() => Math.random() - 0.5);
 }
 
-function buildRound(challenge: RhymeChallenge): string[] {
-    return shuffle([challenge.correct, ...challenge.distractors]);
+function getFallbackSummaryMessage(accuracy: number): string {
+  if (accuracy >= 85) return "Your rhymes and speech sounded fantastic today!";
+  if (accuracy >= 65) return "You found clever rhymes and spoke with confidence!";
+  return "Every rhyme round gave your ears and words a workout!";
 }
 
 export default function RhymeTimePage() {
-    const [profile, setProfile] = useState<ChildProfile | null>(null);
-    const [activeSound, setActiveSound] = useState<TargetSound>("r");
-    const [streak, setStreak] = useState(0);
-    const [rounds, setRounds] = useState<RhymeChallenge[]>([]);
-    const [index, setIndex] = useState(0);
-    const [phase, setPhase] = useState<Phase>("showing");
-    const [choices, setChoices] = useState<string[]>([]);
-    const [selected, setSelected] = useState<string | null>(null);
-    const [xp, setXp] = useState(0);
-    const [correct, setCorrect] = useState(0);
-    const [showCelebration, setShowCelebration] = useState(false);
-    const [showSummary, setShowSummary] = useState(false);
-    const [finalAccuracy, setFinalAccuracy] = useState(0);
-    const [summaryMessage, setSummaryMessage] = useState("Wonderful rhyming practice! Every round makes your brain stronger!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
-    const sessionRef = useRef<SessionWithId | null>(null);
-    const attemptsRef = useRef<AttemptData[]>([]);
-    const promptRunRef = useRef(0);
-    const profileName = profile?.name;
+  const [profile, setProfile] = useState<ChildProfile | null>(null);
+  const [activeSound, setActiveSound] = useState<TargetSound>("r");
+  const [rounds, setRounds] = useState<RhymeChallenge[]>([]);
+  const [roundIndex, setRoundIndex] = useState(0);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [xp, setXp] = useState<number | null>(null);
+  const [streak, setStreak] = useState(0);
+  const [attemptsForWord, setAttemptsForWord] = useState(0);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [lastResult, setLastResult] = useState<PhonemeResult | null>(null);
+  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [sessionXp, setSessionXp] = useState(0);
+  const [summaryMessage, setSummaryMessage] = useState("");
+  const [finalAccuracy, setFinalAccuracy] = useState(0);
+  const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
 
-    useEffect(() => {
-        const currentRound = rounds[index];
-        if (phase !== "showing" || !currentRound) return;
-        (async () => {
-            const runId = ++promptRunRef.current;
-            setNovaState("thinking");
-            await speakAsNova(`Which word rhymes with ${currentRound.word}?`);
-            if (promptRunRef.current !== runId) return;
-            setNovaState("idle");
-        })();
-    }, [index, phase, rounds]);
+  const activeSoundRef = useRef<TargetSound>("r");
+  const attemptsForWordRef = useRef(0);
+  const flowIdRef = useRef(0);
+  const isMountedRef = useRef(false);
+  const phaseRef = useRef<Phase>("loading");
+  const profileRef = useRef<ChildProfile | null>(null);
+  const sessionRef = useRef<SessionWithId | null>(null);
+  const streakRef = useRef(0);
+  const roundIndexRef = useRef(0);
+  const roundsRef = useRef<RhymeChallenge[]>([]);
 
-    useEffect(() => {
-        (async () => {
-            setNovaState("incorrect");
-            await speakAsNova("Welcome to Rhyme Time! Tap the word that rhymes with mine.");
-            setNovaState("idle");
-        })();
-    }, []);
+  useEffect(() => {
+    activeSoundRef.current = activeSound;
+  }, [activeSound]);
 
-    useEffect(() => {
-        async function loadProfile() {
-            try {
-                const res = await fetch("/api/profile");
-                if (!res.ok) throw new Error("profile fetch failed");
-                const data = await res.json();
-                const p = data?.profile;
-                if (p) {
-                    const targets = Array.isArray(p.targetSounds) && p.targetSounds.length
-                        ? (p.targetSounds as TargetSound[])
-                        : ["r" as TargetSound];
-                    setProfile({
-                        name: p.name ?? "Friend",
-                        age: typeof p.age === "number" ? p.age : 7,
-                        targetSounds: targets,
-                        streak: p.streak ?? 0,
-                        totalXP: p.totalXP ?? p.xp ?? 0,
-                    });
-                    setActiveSound((targets[0] ?? "r") as TargetSound);
-                    setStreak(p.streak ?? 0);
-                    return;
-                }
-            } catch {
-                const fallback = { name: "Maya", age: 7, targetSounds: ["r"] as TargetSound[], streak: 1, totalXP: 0 };
-                setProfile(fallback);
-                setActiveSound("r");
-                setStreak(fallback.streak);
+  useEffect(() => {
+    attemptsForWordRef.current = attemptsForWord;
+  }, [attemptsForWord]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    streakRef.current = streak;
+  }, [streak]);
+
+  useEffect(() => {
+    roundIndexRef.current = roundIndex;
+  }, [roundIndex]);
+
+  useEffect(() => {
+    roundsRef.current = rounds;
+  }, [rounds]);
+
+  const roundChoices = useMemo(() => {
+    const currentRound = rounds[roundIndex];
+    if (!currentRound) return [];
+    return shuffle([currentRound.correct, ...currentRound.distractors]);
+  }, [roundIndex, rounds]);
+
+  const isFlowActive = useCallback((flowId: number) => {
+    return isMountedRef.current && flowId === flowIdRef.current;
+  }, []);
+
+  const promptRound = useCallback(
+    async (
+      flowId: number,
+      nextIndex: number,
+      options: { resetAttempts: boolean }
+    ) => {
+      const currentRound = roundsRef.current[nextIndex];
+      if (!currentRound) return;
+
+      if (options.resetAttempts) {
+        attemptsForWordRef.current = 0;
+        setAttemptsForWord(0);
+      }
+
+      setRoundIndex(nextIndex);
+      setSelectedChoice(null);
+      setLastResult(null);
+      setNovaState("thinking");
+      setPhase("asking");
+      setFeedbackMessage(`Listen. Which word rhymes with ${currentRound.word}?`);
+
+      await speakAsNova(`Which word rhymes with ${currentRound.word}?`);
+      if (!isFlowActive(flowId)) return;
+
+      setNovaState("idle");
+      setFeedbackMessage(`Tap the rhyme for ${currentRound.word}.`);
+    },
+    [isFlowActive]
+  );
+
+  const finishSession = useCallback(
+    async (flowId: number) => {
+      if (phaseRef.current === "summary") {
+        return;
+      }
+
+      setPhase("summary");
+      setNovaState("celebrating");
+
+      const session = sessionRef.current ?? startSession(profileRef.current?.name ?? "kid", activeSoundRef.current);
+      const summary = await endSession(session);
+      const accuracy = summary.averageAccuracy;
+      const fallbackMessage = getFallbackSummaryMessage(accuracy);
+      const celebrationMessage = await fetchCelebrationMessage({
+        accuracy,
+        count: summary.sessionData.attempts.length || roundsRef.current.length,
+        fallback: fallbackMessage,
+        sound: `${activeSoundRef.current.toUpperCase()} rhyme time`,
+      });
+
+      let earnedXp = summary.xpEarned;
+      let updatedStreak = streakRef.current;
+
+      try {
+        const saved = await saveCompletedSession(summary.sessionData);
+        earnedXp = saved.xpEarned;
+        updatedStreak = saved.newStreak ?? updatedStreak;
+      } catch {
+        /* keep local summary if persistence fails */
+      }
+
+      if (!isFlowActive(flowId)) return;
+
+      setFinalAccuracy(accuracy);
+      setSessionXp(earnedXp);
+      setSummaryMessage(celebrationMessage);
+      setShowSummary(true);
+
+      if (earnedXp > 0) {
+        setXp((currentXp) => (currentXp ?? profileRef.current?.totalXP ?? 0) + earnedXp);
+      }
+
+      setStreak(updatedStreak);
+      setProfile((currentProfile) =>
+        currentProfile
+          ? {
+              ...currentProfile,
+              streak: updatedStreak,
+              totalXP: currentProfile.totalXP + earnedXp,
             }
-        }
-        loadProfile();
-    }, []);
+          : currentProfile
+      );
+    },
+    [isFlowActive]
+  );
 
-    useEffect(() => {
-        if (!profileName) return;
-        const r = rhymeData[activeSound].slice(0, TOTAL_ROUNDS);
-        setRounds(r);
-        setIndex(0);
-        setChoices(buildRound(r[0]));
-        setPhase("showing");
-        setNovaState("idle");
-        setXp(0);
-        setCorrect(0);
-        setSelected(null);
-        attemptsRef.current = [];
-        sessionRef.current = startSession(profileName, activeSound);
-    }, [activeSound, profileName]);
+  const analyzeCapture = useCallback(
+    async (capture: SpeechCaptureResult) => {
+      const currentProfile = profileRef.current;
+      const currentRound = roundsRef.current[roundIndexRef.current];
+      const flowId = flowIdRef.current;
 
-    useEffect(() => () => { stopCurrentAudio(); }, []);
+      if (!currentProfile || !currentRound) {
+        setPhase("waiting");
+        return;
+      }
 
-    async function handleChoice(word: string) {
-        if (phase !== "showing" || !rounds[index]) return;
-        setSelected(word);
-        const isCorrect = word === rounds[index].correct;
+      setNovaState("thinking");
+      setFeedbackMessage(`Nova is listening to ${currentRound.correct}.`);
+
+      try {
+        const rawResult = await submitAudioForAnalysis({
+          age: currentProfile.age,
+          audio: capture.blob,
+          targetSound: activeSoundRef.current,
+          transcript: capture.transcript,
+          word: currentRound.correct,
+        });
+
+        if (!isFlowActive(flowId)) return;
+
+        const normalizedResult: PhonemeResult = {
+          ...rawResult,
+          correct: rawResult.correct || rawResult.score >= SCORE_THRESHOLD,
+        };
         const attempt: AttemptData = {
-            word: rounds[index].word,
-            transcript: word,
-            score: isCorrect ? 100 : 60,
-            correct: isCorrect,
-            substitution: null,
+          correct: normalizedResult.correct,
+          score: normalizedResult.score,
+          substitution: normalizedResult.substitution,
+          transcript: capture.transcript || "[audio capture]",
+          word: currentRound.correct,
         };
-        attemptsRef.current = [...attemptsRef.current, attempt];
-        if (sessionRef.current) sessionRef.current = recordAttempt(sessionRef.current, attempt);
 
-        if (isCorrect) {
-            setPhase("celebrating");
-            setNovaState("celebrating");
-            setShowCelebration(true);
-            setXp(p => p + 10);
-            setCorrect(p => p + 1);
-            await speakAsNova(`Yes! "${word}" rhymes with "${rounds[index].word}"! Great job!`);
-            await new Promise(r => setTimeout(r, 1600));
-            setShowCelebration(false);
-        } else {
-            setPhase("redirecting");
-            setNovaState("incorrect");
-            await speakAsNova(`Good try! The rhyme was "${rounds[index].correct}". It sounds like "${rounds[index].word}". Let's keep going!`);
-            await new Promise(r => setTimeout(r, 1000));
+        setLastResult(normalizedResult);
+        sessionRef.current = recordAttempt(sessionRef.current ?? startSession(currentProfile.name, activeSoundRef.current), attempt);
+
+        if (normalizedResult.correct) {
+          setPhase("celebrating");
+          setFeedbackMessage(normalizedResult.feedback);
+          setShowCelebration(true);
+          setNovaState("celebrating");
+          await speakAsNova(CORRECT_VOICE_LINE);
+          if (!isFlowActive(flowId)) return;
+
+          setShowCelebration(false);
+          const nextIndex = roundIndexRef.current + 1;
+          if (nextIndex >= roundsRef.current.length) {
+            await finishSession(flowId);
+            return;
+          }
+
+          await promptRound(flowId, nextIndex, { resetAttempts: true });
+          return;
         }
 
-        setSelected(null);
-        const next = index + 1;
-        if (next >= rounds.length) {
-            setPhase("summary");
-            await completeSession();
-        } else {
-            setIndex(next);
-            setChoices(buildRound(rounds[next]));
-            setNovaState("idle");
-            setPhase("showing");
+        const nextAttempts = attemptsForWordRef.current + 1;
+        attemptsForWordRef.current = nextAttempts;
+        setAttemptsForWord(nextAttempts);
+        setPhase("redirecting");
+        setNovaState("encouraging");
+        setFeedbackMessage(normalizedResult.feedback || RETRY_VOICE_LINE);
+
+        await speakAsNova(RETRY_VOICE_LINE);
+        if (!isFlowActive(flowId)) return;
+
+        if (normalizedResult.mouthCue) {
+          await speakAsNova(normalizedResult.mouthCue);
+          if (!isFlowActive(flowId)) return;
         }
+
+        if (nextAttempts >= MAX_ATTEMPTS) {
+          const nextIndex = roundIndexRef.current + 1;
+          if (nextIndex >= roundsRef.current.length) {
+            await finishSession(flowId);
+            return;
+          }
+
+          await promptRound(flowId, nextIndex, { resetAttempts: true });
+          return;
+        }
+
+        setPhase("waiting");
+        setNovaState("idle");
+        setFeedbackMessage(`Try saying ${currentRound.correct} one more time.`);
+      } catch {
+        if (!isFlowActive(flowId)) return;
+        setNovaState("encouraging");
+        setPhase("waiting");
+        setFeedbackMessage("Let's try that rhyme again.");
+      }
+    },
+    [finishSession, isFlowActive, promptRound]
+  );
+
+  const beginSession = useCallback(
+    async (nextProfile: ChildProfile, nextSound: TargetSound) => {
+      stopListening({ cancel: true });
+      stopCurrentAudio();
+
+      const flowId = ++flowIdRef.current;
+      const nextRounds = rhymeData[nextSound].slice(0, TOTAL_ROUNDS);
+
+      sessionRef.current = startSession(nextProfile.name, nextSound);
+      roundsRef.current = nextRounds;
+      roundIndexRef.current = 0;
+      attemptsForWordRef.current = 0;
+      activeSoundRef.current = nextSound;
+
+      setActiveSound(nextSound);
+      setRounds(nextRounds);
+      setRoundIndex(0);
+      setAttemptsForWord(0);
+      setFeedbackMessage("");
+      setLastResult(null);
+      setSelectedChoice(null);
+      setShowCelebration(false);
+      setShowSummary(false);
+      setSessionXp(0);
+      setSummaryMessage("");
+      setFinalAccuracy(0);
+      setNovaState("encouraging");
+      setPhase("greeting");
+
+      await speakAsNova(`Hi ${nextProfile.name}, let's play rhyme time together.`);
+      if (!isFlowActive(flowId)) return;
+
+      await promptRound(flowId, 0, { resetAttempts: true });
+    },
+    [isFlowActive, promptRound]
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    void (async () => {
+      const nextProfile = await fetchChildProfile(FALLBACK_PROFILE);
+      if (!isMountedRef.current) return;
+
+      const nextSound = nextProfile.targetSounds[0] ?? "r";
+      setProfile(nextProfile);
+      setXp(nextProfile.totalXP);
+      setStreak(nextProfile.streak);
+      setActiveSound(nextSound);
+
+      await beginSession(nextProfile, nextSound);
+    })();
+
+    return () => {
+      isMountedRef.current = false;
+      flowIdRef.current += 1;
+      stopListening({ cancel: true });
+      stopCurrentAudio();
+    };
+  }, [beginSession]);
+
+  const handleChoice = useCallback(
+    async (choice: string) => {
+      if (phaseRef.current !== "asking") return;
+
+      const currentRound = roundsRef.current[roundIndexRef.current];
+      const flowId = flowIdRef.current;
+      if (!currentRound) return;
+
+      setSelectedChoice(choice);
+      setNovaState("encouraging");
+
+      if (choice === currentRound.correct) {
+        setFeedbackMessage(`Yes. ${choice} rhymes with ${currentRound.word}. Now say ${choice}.`);
+        await speakAsNova(`Yes. ${choice} rhymes with ${currentRound.word}. Now say ${choice}.`);
+      } else {
+        setFeedbackMessage(`The rhyme was ${currentRound.correct}. Now say ${currentRound.correct}.`);
+        await speakAsNova(`Nice try. The rhyme was ${currentRound.correct}. Now say ${currentRound.correct}.`);
+      }
+
+      if (!isFlowActive(flowId)) return;
+
+      setNovaState("idle");
+      setPhase("waiting");
+    },
+    [isFlowActive]
+  );
+
+  const handleMicStart = useCallback(() => {
+    if (phaseRef.current !== "waiting") {
+      return;
     }
 
-    async function completeSession() {
-        const session = sessionRef.current ?? {
-            sessionId: `rhyme-${Date.now()}`,
-            userId: profile?.name ?? "kid",
-            sound: activeSound,
-            startTime: Date.now() - 60000,
-            attempts: attemptsRef.current,
-        };
-        const summary = await endSession(session);
-        const attemptsList = session.attempts?.length ? session.attempts : attemptsRef.current;
-        const acc = summary?.averageAccuracy ?? (attemptsList.length
-            ? Math.round((attemptsList.filter((a) => a.correct).length / attemptsList.length) * 100)
-            : Math.round((correct / TOTAL_ROUNDS) * 100));
-        setFinalAccuracy(acc);
-        setXp(summary?.xpEarned ?? xp);
+    setPhase("recording");
+    setFeedbackMessage("Hold the mic while you say the rhyme.");
 
-        try {
-            const celebRes = await fetch("/api/celebrate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sound: activeSound.toUpperCase(), count: attemptsList.length || TOTAL_ROUNDS, accuracy: acc }),
-            });
-            const celebData = await celebRes.json();
-            if (celebData.message) setSummaryMessage(celebData.message);
-        } catch {
-            setSummaryMessage(correct >= 6 ? "You're a rhyming superstar! Your ears are amazing!" : "Wonderful rhyming practice! Every round makes your brain stronger!");
-        }
-
-        try {
-            const resp = await fetch("/api/session", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(summary.sessionData),
-            });
-            const payload = await resp.json().catch(() => ({}));
-            if (resp.ok) {
-                setStreak(payload.newStreak ?? streak);
-                setProfile((p) => p ? {
-                    ...p,
-                    totalXP: (p.totalXP ?? 0) + (payload.xpEarned ?? summary.xpEarned ?? 0),
-                    streak: payload.newStreak ?? p.streak,
-                } : p);
-            }
-        } catch { /* ignore */ }
-        setShowSummary(true);
-    }
-
-    if (!rounds.length) return (
-        <main className="min-h-screen flex items-center justify-center">
-            <div className="text-6xl animate-[nova-idle_3s_ease-in-out_infinite]">🌟</div>
-        </main>
+    void startListening(
+      (capture) => {
+        if (!isMountedRef.current || phaseRef.current !== "recording") return;
+        setPhase("analyzing");
+        void analyzeCapture(capture);
+      },
+      (message) => {
+        if (!isMountedRef.current) return;
+        setFeedbackMessage(message);
+        setPhase("waiting");
+      }
     );
+  }, [analyzeCapture]);
 
+  const handleMicStop = useCallback(() => {
+    if (phaseRef.current === "recording") {
+      stopListening();
+    }
+  }, []);
+
+  if (!profile || xp === null) {
     return (
-        <>
-            <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
-                body {
-                    background: #F9F4F1;
-                    font-family: 'Nunito', sans-serif;
-                }
-            `}</style>
-            <CelebrationBurst active={showCelebration} />
-            {showSummary && (
-                <SessionSummary
-                    accuracy={finalAccuracy}
-                    xpEarned={xp} wordsCompleted={correct} totalWords={TOTAL_ROUNDS}
-                    message={summaryMessage}
-                    onPlayAgain={() => {
-                        setIndex(0); setXp(0); setCorrect(0); setSelected(null); setShowSummary(false); setFinalAccuracy(0); setSummaryMessage("Wonderful rhyming practice! Every round makes your brain stronger!");
-                        attemptsRef.current = [];
-                        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-                        const r = rhymeData[activeSound].slice(0, TOTAL_ROUNDS);
-                        setRounds(r); setChoices(buildRound(r[0])); setPhase("showing"); setNovaState("idle");
-                    }}
-                    onDone={() => { window.location.href = "/kid"; }}
-                />
-            )}
-
-            <main className="min-h-screen flex flex-col items-center px-4 md:px-8 pt-6 md:pt-12 pb-24 gap-6 md:gap-12 max-w-3xl md:max-w-5xl mx-auto w-full md:px-12">
-                {/* Top bar */}
-                <div className="w-full flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Link href="/kid" className="text-[#945F95] hover:text-[#390052] transition-colors text-2xl" aria-label="Back">←</Link>
-                        <StreakBadge streak={streak} />
-                    </div>
-                    <XPCounter xp={xp} />
-                </div>
-
-                {/* Mode pill */}
-                <div className="flex w-full max-w-sm md:max-w-lg items-center justify-between">
-                    <div className="flex items-center gap-2 bg-white rounded-[16px] px-4 py-1.5 border-2 border-[rgba(57,0,82,0.1)] border-b-[4px] border-b-[rgba(57,0,82,0.1)]">
-                        <span className="text-lg">🎵</span>
-                        <span className="text-sm font-black text-[#945F95]">Rhyme Time</span>
-                    </div>
-                    <AudioControls disabled={phase !== "showing"} colorTheme="#1CB0F6" />
-                </div>
-
-                {/* Nova */}
-                <div className="flex-shrink-0 mt-1">
-                    <Nova state={novaState} size="lg" />
-                </div>
-
-                {/* Instruction */}
-                <div className="text-center px-4">
-                    <p className="text-[#945F95] text-sm uppercase tracking-widest mb-1">Find the rhyme!</p>
-                    <p className="text-[#390052] text-xl font-black">
-                        Which word rhymes with…
-                    </p>
-                </div>
-
-                {/* Target word card */}
-                {rounds[index] && (
-                    <div className="flex flex-col items-center gap-3 px-8 py-5 rounded-3xl bg-white border-2 border-[rgba(57,0,82,0.1)] border-b-[6px] border-b-[#1CB0F6] w-full max-w-sm md:max-w-lg animate-[fade-slide-in_0.4s_ease-out_forwards]">
-                        <span className="text-7xl">{rounds[index].emoji}</span>
-                        <p className="text-3xl font-black text-[#390052] tracking-wide">{rounds[index].word}</p>
-                    </div>
-                )}
-
-                {/* Choice buttons */}
-                <div className="flex flex-col gap-3 w-full max-w-sm md:max-w-lg mt-2">
-                    {choices.map((word) => (
-                        <ChoiceButton
-                            key={word}
-                            label={word}
-                            state={
-                                selected === null ? "default"
-                                    : selected === word && word === rounds[index]?.correct ? "correct"
-                                        : selected === word ? "wrong"
-                                            : "default"
-                            }
-                            onClick={() => handleChoice(word)}
-                            disabled={phase !== "showing"}
-                        />
-                    ))}
-                </div>
-
-                <div className="flex-1" />
-
-                {/* Progress dots */}
-                <div className="flex flex-col items-center gap-2 pb-2">
-                    <p className="text-xs text-[#945F95]">Round {Math.min(index + 1, TOTAL_ROUNDS)} of {TOTAL_ROUNDS}</p>
-                    <div className="flex gap-2">
-                        {Array.from({ length: TOTAL_ROUNDS }).map((_, i) => (
-                            <div key={i} className={["w-3 h-3 rounded-full transition-all duration-500",
-                                i < index ? "bg-[#CE7DA5]" : i === index ? "bg-[#CE7DA5] scale-125 " : "bg-[rgba(57,0,82,0.1)]"
-                            ].join(" ")} />
-                        ))}
-                    </div>
-                </div>
-            </main>
-        </>
+      <main className="flex min-h-screen items-center justify-center bg-[#F9F4F1]">
+        <div className="text-5xl">⭐</div>
+      </main>
     );
+  }
+
+  const currentRound = rounds[roundIndex];
+  const completedRounds = showSummary ? rounds.length : roundIndex;
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
+        body {
+          background: #F9F4F1;
+          font-family: 'Nunito', sans-serif;
+        }
+      `}</style>
+
+      <CelebrationBurst active={showCelebration} />
+
+      {showSummary ? (
+        <SessionSummary
+          accuracy={finalAccuracy}
+          message={summaryMessage}
+          onDone={() => {
+            window.location.href = "/kid";
+          }}
+          onPlayAgain={() => {
+            if (!profileRef.current) return;
+            void beginSession(profileRef.current, activeSoundRef.current);
+          }}
+          totalWords={rounds.length}
+          wordsCompleted={rounds.length}
+          xpEarned={sessionXp}
+        />
+      ) : null}
+
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center gap-8 px-4 pb-24 pt-8 md:px-10">
+        <div className="flex w-full items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              aria-label="Back to kid activities"
+              className="text-xl font-black text-[#945F95] transition-colors hover:text-[#390052]"
+              href="/kid"
+            >
+              Back
+            </Link>
+            <StreakBadge streak={streak} />
+          </div>
+          <XPCounter xp={xp} />
+        </div>
+
+        <div className="rounded-full border-2 border-[rgba(57,0,82,0.1)] bg-white px-5 py-2 text-sm font-black uppercase tracking-[0.28em] text-[#945F95]">
+          Rhyme Time
+        </div>
+
+        <Nova size="lg" state={novaState} />
+
+        <div className="min-h-24 text-center">
+          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#945F95]">
+            {phase === "greeting" && "Nova is warming up the rhyme game"}
+            {phase === "asking" && "Listen and choose"}
+            {phase === "waiting" && "Now say the rhyme"}
+            {phase === "recording" && "Recording"}
+            {phase === "analyzing" && "Listening back"}
+            {phase === "celebrating" && "Rhyming win"}
+            {phase === "redirecting" && "Try with Nova"}
+          </p>
+          <p className="mt-3 text-2xl font-black text-[#390052]">
+            {feedbackMessage || (currentRound ? `Which word rhymes with ${currentRound.word}?` : "Loading your rhyme game...")}
+          </p>
+          {lastResult?.mouthCue ? (
+            <p className="mt-2 text-base font-bold text-[#945F95]">{lastResult.mouthCue}</p>
+          ) : null}
+        </div>
+
+        {currentRound ? (
+          <div className="w-full max-w-lg rounded-[28px] border-2 border-[rgba(57,0,82,0.1)] bg-white p-8 text-center">
+            <div className="text-7xl">{currentRound.emoji}</div>
+            <p className="mt-6 text-5xl font-black tracking-[0.18em] text-[#390052]">
+              {currentRound.word}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="grid w-full max-w-3xl gap-3 md:grid-cols-3">
+          {roundChoices.map((choice) => {
+            const state =
+              selectedChoice === null
+                ? "default"
+                : choice === currentRound?.correct
+                  ? "correct"
+                  : choice === selectedChoice
+                    ? "wrong"
+                    : "default";
+
+            return (
+              <ChoiceButton
+                key={choice}
+                disabled={phase !== "asking"}
+                label={choice}
+                onClick={() => {
+                  void handleChoice(choice);
+                }}
+                state={state}
+              />
+            );
+          })}
+        </div>
+
+        <MicButton
+          disabled={!["waiting", "recording"].includes(phase)}
+          isRecording={phase === "recording"}
+          onStart={handleMicStart}
+          onStop={handleMicStop}
+        />
+
+        {attemptsForWord > 0 ? (
+          <div className="flex items-center gap-2">
+            {Array.from({ length: MAX_ATTEMPTS }).map((_, index) => (
+              <div
+                key={index}
+                className="h-3 w-3 rounded-full"
+                style={{
+                  background:
+                    index < attemptsForWord ? "#CE7DA5" : "rgba(57, 0, 82, 0.12)",
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-auto flex flex-col items-center gap-3">
+          <p className="text-sm font-bold text-[#945F95]">
+            Round {Math.min(roundIndex + 1, rounds.length || TOTAL_ROUNDS)} of {rounds.length || TOTAL_ROUNDS}
+          </p>
+          <div className="flex gap-2">
+            {Array.from({ length: rounds.length || TOTAL_ROUNDS }).map((_, index) => (
+              <div
+                key={index}
+                className="h-3 w-3 rounded-full transition-all duration-200"
+                style={{
+                  background:
+                    index < completedRounds
+                      ? "#CE7DA5"
+                      : index === roundIndex
+                        ? "#945F95"
+                        : "rgba(57, 0, 82, 0.12)",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </main>
+    </>
+  );
 }
