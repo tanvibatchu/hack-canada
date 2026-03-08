@@ -1,9 +1,9 @@
-import { getFirestore, doc, getDoc, setDoc, Timestamp } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 
 const SLP_KEYWORDS = [
   "speech", "articulation", "apraxia", "dysarthria", "stutter", "stammer",
   "fluency", "phoneme", "phonology", "phonological", "language delay",
-  "language disorder", "therapy", "slp", "pronunciation", "sound",
+  "language disorder", "therapy", "slp", "slps", "pronunciation", "sound",
   "lisp", "voice", "swallowing", "aac", "augmentative", "communication",
   "word", "sentence", "grammar", "vocabulary", "reading", "dyslexia",
   "autism", "asd", "developmental", "delay", "milestone", "tongue",
@@ -12,6 +12,7 @@ const SLP_KEYWORDS = [
   "nonverbal", "sign", "gesture", "expressive", "receptive", "pragmatic",
   "dttc", "lsvt", "prompt", "nuffield", "asha", "rcslt", "casana",
   "childhood apraxia", "developmental language disorder", "dld", "sli", "cas",
+  "pathologist", "pathology", "intervention", "sources", "research", "studies",
 ];
 
 export interface ClassificationResult {
@@ -34,17 +35,16 @@ const DAILY_LIMIT = 20;
 
 export async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remaining: number }> {
   try {
-    const db = getFirestore();
     const today = new Date().toISOString().split("T")[0];
-    const ref = doc(db, "chatbotLimits", `${userId}_${today}`);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, { count: 1, userId, date: today, createdAt: Timestamp.now() });
+    const ref = db.collection("chatbotLimits").doc(`${userId}_${today}`);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({ count: 1, userId, date: today, createdAt: new Date() });
       return { allowed: true, remaining: DAILY_LIMIT - 1 };
     }
-    const count = snap.data().count ?? 0;
+    const count = snap.data()?.count ?? 0;
     if (count >= DAILY_LIMIT) return { allowed: false, remaining: 0 };
-    await setDoc(ref, { count: count + 1 }, { merge: true });
+    await ref.update({ count: count + 1 });
     return { allowed: true, remaining: DAILY_LIMIT - count - 1 };
   } catch (e) {
     console.error("Rate limit error:", e);

@@ -160,7 +160,7 @@ export default function ChatbotPage() {
               {loading ? "⏳" : "→"}
             </button>
           </div>
-          <p style={{ textAlign: "center", fontSize: "0.68rem", color: "#945F95", marginTop: 8, fontWeight: 600 }}>Searches PubMed · Semantic Scholar · ERIC · OpenAlex — peer-reviewed journals only</p>
+          <p style={{ textAlign: "center", fontSize: "0.68rem", color: "#945F95", marginTop: 8, fontWeight: 600 }}>Searches PubMed · Semantic Scholar · E.R.I.C · OpenAlex — peer-reviewed journals only</p>
         </div>
       </div>
     </>

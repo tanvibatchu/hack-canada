@@ -50,7 +50,7 @@ RULES:
 - End with: "Please consult a licensed Speech-Language Pathologist for advice tailored to your child."
 - Do NOT invent information not in the abstracts`;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContent(prompt);
     const answer = result.response.text();
 
