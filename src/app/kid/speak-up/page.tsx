@@ -52,7 +52,7 @@ export default function SpeakUpPage() {
     const [showSummary, setShowSummary] = useState(false);
     const [finalAccuracy, setFinalAccuracy] = useState(0);
     const [summaryMessage, setSummaryMessage] = useState("Great voice power!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("encouraging");
+    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("encouraging");
     const phaseRef = useRef<Phase>("intro");
     const sessionRef = useRef<SessionWithId | null>(null);
     const attemptsRef = useRef<AttemptData[]>([]);
@@ -89,7 +89,7 @@ export default function SpeakUpPage() {
     useEffect(() => {
         // Brief intro — Nova explains the exercise
         async function intro() {
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             await speakAsNova("This is Speak Up! Say each word as LOUD and CLEAR as you can! Let's wake up those vocal cords!");
             setPhase("waiting");
             setNovaState("idle");
@@ -162,7 +162,7 @@ export default function SpeakUpPage() {
                         await new Promise(r => setTimeout(r, 1600));
                         setShowCelebration(false);
                     } else {
-                        setNovaState("encouraging");
+                        setNovaState("incorrect");
                         setPhase("redirecting");
                         const tip = isLoudEnough ? "Make it super clear like a news anchor!" : words[index].tip;
                         const encouragement = isClearEnough ? "Even more power from your belly!" : "Open your mouth wide and stretch the vowel!";
@@ -181,7 +181,7 @@ export default function SpeakUpPage() {
                         setPhase("waiting");
                     }
                 } catch (err) {
-                    setNovaState("encouraging");
+                    setNovaState("incorrect");
                     setPhase("waiting");
                     await speakAsNova("Let's try that one more time when you're ready!");
                 }

@@ -10,6 +10,13 @@
 
 const SPEAK_API = "/api/tts";
 
+// Dispatch event so UI components (like Nova) can react globally
+function setSpeakingState(isSpeaking: boolean) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("nova-speaking", { detail: isSpeaking }));
+  }
+}
+
 // Singleton AudioContext — reused across all calls to avoid the ~6-context browser limit.
 let _ctx: AudioContext | null = null;
 function getAudioContext(): AudioContext {
@@ -33,6 +40,7 @@ export function stopCurrentAudio(): void {
   if (_currentSource) {
     try { _currentSource.stop(); } catch { /* already stopped */ }
     _currentSource = null;
+    setSpeakingState(false);
   }
 }
 
@@ -90,11 +98,15 @@ export async function speakAsNova(text: string, speed = 1): Promise<void> {
     source.connect(ctx.destination);
     _currentSource = source;
     source.start(0);
+    setSpeakingState(true);
 
     // audioEndedPromise: resolves when the source finishes naturally, or safety-timeout fires
     const audioEndedPromise = new Promise<void>((resolve) => {
       const done = () => {
-        if (_currentSource === source) _currentSource = null;
+        if (_currentSource === source) {
+          _currentSource = null;
+          setSpeakingState(false);
+        }
         resolve();
       };
       source.addEventListener("ended", done, { once: true });

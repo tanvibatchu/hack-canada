@@ -45,7 +45,7 @@ export default function BlendItPage() {
     const [showSummary, setShowSummary] = useState(false);
     const [finalAccuracy, setFinalAccuracy] = useState(0);
     const [summaryMessage, setSummaryMessage] = useState("Great blending practice!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
+    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
     // ReST rate control — slow (DTTC level 1) vs fast (DTTC level 3)
     const [rateMode, setRateMode] = useState<"slow" | "fast">("slow");
     const phaseRef = useRef<Phase>("loading");
@@ -219,7 +219,7 @@ export default function BlendItPage() {
                 setShowCelebration(false);
                 advanceWord();
             } else {
-                setNovaState("encouraging");
+                setNovaState("incorrect");
                 setPhase("redirecting");
                 const nextAttempts = attempts + 1;
                 setAttempts(nextAttempts);
@@ -235,7 +235,7 @@ export default function BlendItPage() {
                 }
             }
         } catch {
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             setPhase("waiting");
             await speakAsNova("Let's try that word again in a moment!");
         }

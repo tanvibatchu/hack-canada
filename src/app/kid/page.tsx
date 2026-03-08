@@ -25,9 +25,11 @@ const GREETINGS = [
 
 export default function KidMenuPage() {
     const [profile, setProfile] = useState<ChildProfile>({ name: "Maya", streak: 3, xp: 0 });
-    const [greeting, setGreeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
+    const [greeting, setGreeting] = useState(GREETINGS[0]);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
         fetch("/api/profile")
             .then(r => r.ok ? r.json() : null)
             .then(d => {

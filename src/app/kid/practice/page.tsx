@@ -32,7 +32,7 @@ export default function PracticePage() {
     const [attempts, setAttempts] = useState(0);
     const [xp, setXp] = useState(0);
     const [allAttempts, setAllAttempts] = useState<AttemptData[]>([]);
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
+    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
     const [showCelebration, setShowCelebration] = useState(false);
     const [showMouthDiagram, setShowMouthDiagram] = useState(false);
     const [lastResult, setLastResult] = useState<PhonemeResult | null>(null);
@@ -95,7 +95,7 @@ export default function PracticePage() {
     useEffect(() => {
         if (phase !== "greeting" || !profile || words.length === 0) return;
         async function greet() {
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             await speakAsNova("Hi " + profile.name + "! Let us practice your " + SOUND_LABELS[activeSound] + " sound!");
             setNovaState("thinking"); setPhase("demonstrating");
         }
@@ -148,7 +148,7 @@ export default function PracticePage() {
             if (isCorrect) await handleCorrect(normalized);
             else await handleNeedsWork(normalized);
         } catch {
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             setPhase("waiting");
             await speakAsNova("Let's try that again when you're ready!");
         }
@@ -161,7 +161,7 @@ export default function PracticePage() {
         setShowCelebration(false); setAttempts(0); advanceWord();
     }
     async function handleNeedsWork(result: PhonemeResult) {
-        setNovaState("encouraging"); setPhase("redirecting");
+        setNovaState("incorrect"); setPhase("redirecting");
         const gentle = result.feedback || "Ooh so close! Watch where my tongue goes — let's try together.";
         await speakAsNova(gentle);
         setShowMouthDiagram(true);

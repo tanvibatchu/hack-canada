@@ -46,7 +46,7 @@ export default function RhymeTimePage() {
     const [showSummary, setShowSummary] = useState(false);
     const [finalAccuracy, setFinalAccuracy] = useState(0);
     const [summaryMessage, setSummaryMessage] = useState("Wonderful rhyming practice! Every round makes your brain stronger!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
+    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
     const sessionRef = useRef<SessionWithId | null>(null);
     const attemptsRef = useRef<AttemptData[]>([]);
     const promptRunRef = useRef(0);
@@ -66,7 +66,7 @@ export default function RhymeTimePage() {
 
     useEffect(() => {
         (async () => {
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             await speakAsNova("Welcome to Rhyme Time! Tap the word that rhymes with mine.");
             setNovaState("idle");
         })();
@@ -146,7 +146,7 @@ export default function RhymeTimePage() {
             setShowCelebration(false);
         } else {
             setPhase("redirecting");
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             await speakAsNova(`Good try! The rhyme was "${rounds[index].correct}". It sounds like "${rounds[index].word}". Let's keep going!`);
             await new Promise(r => setTimeout(r, 1000));
         }

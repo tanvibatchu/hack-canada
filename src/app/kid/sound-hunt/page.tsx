@@ -108,7 +108,7 @@ export default function SoundHuntPage() {
     const [showSummary, setShowSummary] = useState(false);
     const [finalAccuracy, setFinalAccuracy] = useState(0);
     const [summaryMessage, setSummaryMessage] = useState("Great listening practice! You're getting better every time!");
-    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
+    const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging" | "incorrect">("idle");
     // SFA hint state — reveals category → function → attribute progressively
     const [hintLevel, setHintLevel] = useState(0); // 0=none, 1=category, 2=function, 3=attribute
     const sessionRef = useRef<SessionWithId | null>(null);
@@ -188,7 +188,7 @@ export default function SoundHuntPage() {
             setShowCelebration(false);
         } else {
             setPhase("redirecting");
-            setNovaState("encouraging");
+            setNovaState("incorrect");
             const spokenSound = getSpokenSoundLabel(activeSound, words[index].position);
             await speakAsNova(`Ooh, so close! The ${spokenSound} sound is at the ${words[index].position}. Let's try the next one!`);
             await new Promise(r => setTimeout(r, 1000));
