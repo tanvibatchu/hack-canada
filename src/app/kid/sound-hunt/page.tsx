@@ -81,6 +81,18 @@ const SOUND_HUNT_WORDS: Record<TargetSound, WordEntry[]> = {
 
 const POSITION_LABELS = { start: "Start 🟢", middle: "Middle 🟡", end: "End 🔴" };
 
+const SPOKEN_SOUND_LABELS: Record<TargetSound, Record<WordEntry["position"], string>> = {
+    r: { start: "ruh", middle: "ar", end: "ar" },
+    s: { start: "sss", middle: "sss", end: "sss" },
+    th: { start: "thuh", middle: "thuh", end: "thuh" },
+    l: { start: "lll", middle: "lll", end: "lll" },
+    fluency: { start: "sound", middle: "sound", end: "sound" },
+};
+
+function getSpokenSoundLabel(sound: TargetSound, position: WordEntry["position"]) {
+    return SPOKEN_SOUND_LABELS[sound][position];
+}
+
 export default function SoundHuntPage() {
     const [profile, setProfile] = useState<ChildProfile | null>(null);
     const [activeSound, setActiveSound] = useState<TargetSound>("r");
@@ -100,6 +112,8 @@ export default function SoundHuntPage() {
     const [hintLevel, setHintLevel] = useState(0); // 0=none, 1=category, 2=function, 3=attribute
     const sessionRef = useRef<SessionWithId | null>(null);
     const attemptsRef = useRef<AttemptData[]>([]);
+    const promptRunRef = useRef(0);
+    const profileName = profile?.name;
 
     useEffect(() => {
         async function loadProfile() {
@@ -134,16 +148,19 @@ export default function SoundHuntPage() {
     }, []);
 
     useEffect(() => {
+        if (!profileName) return;
         const w = SOUND_HUNT_WORDS[activeSound].slice(0, TOTAL_ROUNDS);
         setWords(w);
+        setIndex(0);
+        setChoice(null);
         setPhase("showing");
         setHintLevel(0);
         setNovaState("idle");
         setXp(0);
         setCorrect(0);
         attemptsRef.current = [];
-        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-    }, [activeSound, profile?.name]);
+        sessionRef.current = startSession(profileName, activeSound);
+    }, [activeSound, profileName]);
 
     async function handleChoice(picked: "start" | "middle" | "end") {
         if (phase !== "showing") return;
@@ -171,7 +188,8 @@ export default function SoundHuntPage() {
         } else {
             setPhase("redirecting");
             setNovaState("encouraging");
-            await speakAsNova(`Ooh, so close! The ${activeSound.toUpperCase()} sound is at the ${words[index].position}. Let's try the next one!`);
+            const spokenSound = getSpokenSoundLabel(activeSound, words[index].position);
+            await speakAsNova(`Ooh, so close! The ${spokenSound} sound is at the ${words[index].position}. Let's try the next one!`);
             await new Promise(r => setTimeout(r, 1000));
         }
 
@@ -236,14 +254,17 @@ export default function SoundHuntPage() {
     }
 
     useEffect(() => {
-        if (phase !== "showing" || !words[index]) return;
+        const currentWord = words[index];
+        if (phase !== "showing" || !currentWord) return;
         (async () => {
+            const runId = ++promptRunRef.current;
+            const spokenSound = getSpokenSoundLabel(activeSound, currentWord.position);
             setNovaState("thinking");
-            await speakAsNova(`Where is the ${activeSound.toUpperCase()} sound in ${words[index].word}? Start, middle, or end?`);
+            await speakAsNova(`Where is the ${spokenSound} sound in ${currentWord.word}? Start, middle, or end?`);
+            if (promptRunRef.current !== runId) return;
             setNovaState("idle");
         })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [index, phase]);
+    }, [activeSound, index, phase, words]);
 
     useEffect(() => () => { stopCurrentAudio(); }, []);
 

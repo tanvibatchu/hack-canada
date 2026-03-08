@@ -26,6 +26,8 @@ type ChildProfile = { name: string; age: number; targetSounds: TargetSound[]; st
 const TOTAL_WORDS = 6;
 const MAX_ATTEMPTS = 2;
 const SCORE_THRESHOLD = 65;
+const INTER_SEGMENT_PAUSE_MS = { slow: 220, fast: 120 } as const;
+const SEGMENT_RENDER_BUFFER_MS = 60;
 
 export default function BlendItPage() {
     const [profile, setProfile] = useState<ChildProfile | null>(null);
@@ -95,17 +97,16 @@ export default function BlendItPage() {
         const w = blendData[activeSound].slice(0, TOTAL_WORDS);
         setWords(w);
         wordsRef.current = w;
-        loadWord(0, w);
+        loadWord(0);
         attemptsRef.current = [];
         setXp(0);
         setCorrect(0);
         sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-        return () => { runIdRef.current++; stopCurrentAudio(); stopListening(); }; // cancel on unmount / Strict Mode remount
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return () => { runIdRef.current += 1; stopCurrentAudio(); stopListening(); }; // cancel on unmount / Strict Mode remount
     }, [activeSound, profile?.name]);
 
     /** Prepare a word for display and show the Start button — does NOT play audio. */
-    function loadWord(i: number, wordList: BlendWord[]) {
+    function loadWord(i: number) {
         runIdRef.current++; // invalidate any in-flight reveal
         stopCurrentAudio();
         indexRef.current = i;
@@ -126,16 +127,20 @@ export default function BlendItPage() {
         setPhase("revealing");
         setNovaState("thinking");
 
-        const pauseMs = rateModeRef.current === "slow" ? 900 : 250;
+        const pauseMs = INTER_SEGMENT_PAUSE_MS[rateModeRef.current];
         // Small warmup so first phoneme never clips
         await new Promise(r => setTimeout(r, 120));
 
-        for (let s = 0; s < word.segments.length; s++) {
+        for (const [segmentIndex, segment] of word.segments.entries()) {
             if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-            await speakAsNova(segmentToSpeech(word.segments[s], s === 0), 0.82);
+            setRevealedSegments(segmentIndex + 1);
+            await new Promise(r => setTimeout(r, SEGMENT_RENDER_BUFFER_MS));
             if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
-            setRevealedSegments(s + 1);
-            await new Promise(r => setTimeout(r, pauseMs));
+            await speakAsNova(segmentToSpeech(segment, segmentIndex === 0), 0.82);
+            if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
+            if (segmentIndex < word.segments.length - 1) {
+                await new Promise(r => setTimeout(r, pauseMs));
+            }
         }
 
         if (runIdRef.current !== runId) { stopCurrentAudio(); return; }
@@ -226,10 +231,10 @@ export default function BlendItPage() {
                 } else {
                     await speakAsNova("Let's hear the sounds again…");
                     await new Promise(r => setTimeout(r, 300));
-                    revealWord();
+                    await revealWord();
                 }
             }
-        } catch (err) {
+        } catch {
             setNovaState("encouraging");
             setPhase("waiting");
             await speakAsNova("Let's try that word again in a moment!");
@@ -244,7 +249,7 @@ export default function BlendItPage() {
         } else {
             setIndex(next);
             indexRef.current = next;
-            loadWord(next, wordsRef.current);
+            loadWord(next);
         }
     }
 
@@ -316,7 +321,7 @@ export default function BlendItPage() {
                         attemptsRef.current = [];
                         sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
                         const w = blendData[activeSound].slice(0, TOTAL_WORDS);
-                        setWords(w); wordsRef.current = w; loadWord(0, w);
+                        setWords(w); wordsRef.current = w; loadWord(0);
                         setPhase("ready");
                     }}
                     onDone={() => { window.location.href = "/kid"; }}

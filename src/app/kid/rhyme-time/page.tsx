@@ -27,6 +27,10 @@ function shuffle<T>(arr: T[]): T[] {
     return [...arr].sort(() => Math.random() - 0.5);
 }
 
+function buildRound(challenge: RhymeChallenge): string[] {
+    return shuffle([challenge.correct, ...challenge.distractors]);
+}
+
 export default function RhymeTimePage() {
     const [profile, setProfile] = useState<ChildProfile | null>(null);
     const [activeSound, setActiveSound] = useState<TargetSound>("r");
@@ -45,20 +49,20 @@ export default function RhymeTimePage() {
     const [novaState, setNovaState] = useState<"idle" | "celebrating" | "thinking" | "encouraging">("idle");
     const sessionRef = useRef<SessionWithId | null>(null);
     const attemptsRef = useRef<AttemptData[]>([]);
-
-    function buildRound(challenge: RhymeChallenge): string[] {
-        return shuffle([challenge.correct, ...challenge.distractors]);
-    }
+    const promptRunRef = useRef(0);
+    const profileName = profile?.name;
 
     useEffect(() => {
-        if (phase !== "showing" || !rounds[index]) return;
+        const currentRound = rounds[index];
+        if (phase !== "showing" || !currentRound) return;
         (async () => {
+            const runId = ++promptRunRef.current;
             setNovaState("thinking");
-            await speakAsNova(`Which word rhymes with ${rounds[index].word}?`);
+            await speakAsNova(`Which word rhymes with ${currentRound.word}?`);
+            if (promptRunRef.current !== runId) return;
             setNovaState("idle");
         })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [index, phase]);
+    }, [index, phase, rounds]);
 
     useEffect(() => {
         (async () => {
@@ -101,8 +105,10 @@ export default function RhymeTimePage() {
     }, []);
 
     useEffect(() => {
+        if (!profileName) return;
         const r = rhymeData[activeSound].slice(0, TOTAL_ROUNDS);
         setRounds(r);
+        setIndex(0);
         setChoices(buildRound(r[0]));
         setPhase("showing");
         setNovaState("idle");
@@ -110,9 +116,8 @@ export default function RhymeTimePage() {
         setCorrect(0);
         setSelected(null);
         attemptsRef.current = [];
-        sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeSound, profile?.name]);
+        sessionRef.current = startSession(profileName, activeSound);
+    }, [activeSound, profileName]);
 
     useEffect(() => () => { stopCurrentAudio(); }, []);
 

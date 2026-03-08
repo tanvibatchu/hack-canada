@@ -11,7 +11,7 @@ import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import type { PhonemeResult } from "@/lib/gemini";
-import { speakAsNova, demonstrateWord, stopCurrentAudio } from "@/lib/elevenlabs";
+import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { getSessionWords, TargetSound, WordEntry } from "@/lib/wordBanks";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
@@ -95,23 +95,22 @@ export default function PracticePage() {
         if (phase !== "greeting" || !profile || words.length === 0) return;
         async function greet() {
             setNovaState("encouraging");
-            await speakAsNova("Hi " + profile!.name + "! Let us practice your " + SOUND_LABELS[activeSound] + " sound! Can you say... " + words[0].word + "?");
+            await speakAsNova("Hi " + profile.name + "! Let us practice your " + SOUND_LABELS[activeSound] + " sound!");
             setNovaState("thinking"); setPhase("demonstrating");
         }
         greet();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [phase]);
+    }, [activeSound, phase, profile, words]);
     useEffect(() => {
-        if (phase !== "demonstrating" || words.length === 0) return;
+        const currentWord = words[wordIndex];
+        if (phase !== "demonstrating" || !currentWord) return;
         async function demo() {
             const runId = ++demoRunRef.current;
-            await demonstrateWord(words[wordIndex].word, activeSound);
+            await speakAsNova("Can you say... " + currentWord.word + "?");
             if (demoRunRef.current !== runId) return;
             setNovaState("idle"); setPhase("waiting");
         }
         demo();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [phase]);
+    }, [phase, wordIndex, words]);
     function handleMicStart() {
         if (phase !== "waiting") return;
         setShowMouthDiagram(false); setPhase("recording");
@@ -147,7 +146,7 @@ export default function PracticePage() {
             setAllAttempts(prev => [...prev, attempt]);
             if (isCorrect) await handleCorrect(normalized);
             else await handleNeedsWork(normalized);
-        } catch (err) {
+        } catch {
             setNovaState("encouraging");
             setPhase("waiting");
             await speakAsNova("Let's try that again when you're ready!");

@@ -46,37 +46,20 @@ function PhoneticWord({ word, targetSound }: { word: string; targetSound: Target
     );
 }
 
-/**
- * Builds a simple phoneme hint label like "Focus: R sound"
- * and a sounded-out version like "r ... abbit"
- */
-function PhoneticHint({ word, targetSound }: { word: string; targetSound: TargetSound }) {
+function PracticeHint({ targetSound }: { targetSound: TargetSound }) {
     if (targetSound === "fluency") {
-        return <p className="text-purple-300 text-sm text-center">Say it smoothly and clearly</p>;
+        return <p className="text-purple-300 text-sm text-center">Say the whole sentence smoothly and clearly</p>;
     }
 
     const sound = targetSound.toUpperCase();
-    // Build a "sounded out" form: stretch the target sound at start if it appears there
-    const lower = word.toLowerCase();
-    let soundedOut = word;
-    if (lower.startsWith(targetSound)) {
-        const rest = word.slice(targetSound.length);
-        soundedOut = `${targetSound.toUpperCase()} ... ${rest}`;
-    } else {
-        // Find first occurrence and place ellipsis before it
-        const idx = lower.indexOf(targetSound);
-        if (idx > 0) {
-            soundedOut = `${word.slice(0, idx)} ... ${targetSound.toUpperCase()} ... ${word.slice(idx + targetSound.length)}`;
-        }
-    }
 
     return (
         <div className="flex flex-col items-center gap-1">
             <span className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
                 Focus on the <span className="text-purple-200">{sound}</span> sound
             </span>
-            <span className="text-lg text-purple-200 font-mono tracking-widest">
-                {soundedOut}
+            <span className="text-lg text-purple-200 font-semibold">
+                Say the whole word
             </span>
         </div>
     );
@@ -109,8 +92,7 @@ export default function WordCard({ word, emoji, targetSound }: WordCardProps) {
                 <PhoneticWord word={word} targetSound={targetSound} />
             </p>
 
-            {/* Phonetic hint */}
-            <PhoneticHint word={word} targetSound={targetSound} />
+            <PracticeHint targetSound={targetSound} />
         </div>
     );
 }
