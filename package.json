@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.16.0",
+    "@google/generative-ai": "^0.24.1",
     "@opentelemetry/api": "^1.9.0",
     "admin": "^1.4.1",
     "dotenv": "^17.3.1",
