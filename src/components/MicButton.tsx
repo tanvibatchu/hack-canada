@@ -27,8 +27,7 @@ export default function MicButton({
             {/* Button */}
             <button
                 onPointerDown={!disabled ? onStart : undefined}
-                onPointerUp={!disabled && isRecording ? onStop : undefined}
-                onPointerLeave={!disabled && isRecording ? onStop : undefined}
+                onPointerUp={!disabled ? onStop : undefined}
                 disabled={disabled}
                 aria-label={isRecording ? "Recording — release to stop" : "Hold to speak"}
                 className={[

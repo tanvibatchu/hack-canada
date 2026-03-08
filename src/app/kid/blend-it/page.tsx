@@ -101,7 +101,7 @@ export default function BlendItPage() {
         setXp(0);
         setCorrect(0);
         sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
-        return () => { runIdRef.current++; stopCurrentAudio(); }; // cancel on unmount / Strict Mode remount
+        return () => { runIdRef.current++; stopCurrentAudio(); stopListening(); }; // cancel on unmount / Strict Mode remount
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSound, profile?.name]);
 
@@ -128,6 +128,8 @@ export default function BlendItPage() {
         setNovaState("thinking");
 
         const pauseMs = rateModeRef.current === "slow" ? 900 : 250;
+        // Small warmup so first phoneme never clips
+        await new Promise(r => setTimeout(r, 120));
 
         for (let s = 0; s < word.segments.length; s++) {
             if (runIdRef.current !== runId) { stopCurrentAudio(); return; }

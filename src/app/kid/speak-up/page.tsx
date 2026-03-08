@@ -13,7 +13,7 @@ import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
-import { speakAsNova } from "@/lib/elevenlabs";
+import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { generateSessionCelebration } from "@/lib/gemini";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
 
@@ -105,6 +105,8 @@ export default function SpeakUpPage() {
         setCorrect(0);
         setVolumeLevel(0);
     }, [profile?.name]);
+
+    useEffect(() => () => { stopListening(); stopCurrentAudio(); }, []);
 
     function handleMicStart() {
         if (phase !== "waiting") return;

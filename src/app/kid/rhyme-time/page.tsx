@@ -12,7 +12,7 @@ import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
-import { speakAsNova } from "@/lib/elevenlabs";
+import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { rhymeData, RhymeChallenge } from "@/lib/rhymeData";
 import { TargetSound } from "@/lib/wordBanks";
 import { generateSessionCelebration } from "@/lib/gemini";
@@ -61,6 +61,14 @@ export default function RhymeTimePage() {
     }, [index, phase]);
 
     useEffect(() => {
+        (async () => {
+            setNovaState("encouraging");
+            await speakAsNova("Welcome to Rhyme Time! Tap the word that rhymes with mine.");
+            setNovaState("idle");
+        })();
+    }, []);
+
+    useEffect(() => {
         async function loadProfile() {
             try {
                 const res = await fetch("/api/profile");
@@ -105,6 +113,8 @@ export default function RhymeTimePage() {
         sessionRef.current = startSession(profile?.name ?? "kid", activeSound);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSound, profile?.name]);
+
+    useEffect(() => () => { stopCurrentAudio(); }, []);
 
     async function handleChoice(word: string) {
         if (phase !== "showing" || !rounds[index]) return;

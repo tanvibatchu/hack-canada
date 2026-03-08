@@ -12,7 +12,7 @@ import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
 import type { PhonemeResult } from "@/lib/gemini";
 import { generateSessionCelebration } from "@/lib/gemini";
-import { speakAsNova, demonstrateWord } from "@/lib/elevenlabs";
+import { speakAsNova, demonstrateWord, stopCurrentAudio } from "@/lib/elevenlabs";
 import { startListening, stopListening } from "@/lib/speechCapture";
 import { getSessionWords, TargetSound, WordEntry } from "@/lib/wordBanks";
 import { startSession, recordAttempt, endSession, AttemptData, SessionWithId } from "@/lib/sessionManager";
@@ -42,6 +42,7 @@ export default function PracticePage() {
     const sessionIdRef = useRef<SessionWithId | null>(null);
     const phaseRef = useRef<SessionPhase>("loading");
     const sessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const demoRunRef = useRef(0);
     useEffect(() => { phaseRef.current = phase; }, [phase]);
     useEffect(() => {
         async function loadProfile() {
@@ -88,6 +89,7 @@ export default function PracticePage() {
         return () => {
             if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
             stopListening();
+            stopCurrentAudio();
         };
     }, []);
     useEffect(() => {
@@ -103,7 +105,9 @@ export default function PracticePage() {
     useEffect(() => {
         if (phase !== "demonstrating" || words.length === 0) return;
         async function demo() {
+            const runId = ++demoRunRef.current;
             await demonstrateWord(words[wordIndex].word, activeSound);
+            if (demoRunRef.current !== runId) return;
             setNovaState("idle"); setPhase("waiting");
         }
         demo();

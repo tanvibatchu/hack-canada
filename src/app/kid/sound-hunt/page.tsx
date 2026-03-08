@@ -13,7 +13,7 @@ import CelebrationBurst from "@/components/CelebrationBurst";
 import XPCounter from "@/components/XPCounter";
 import StreakBadge from "@/components/StreakBadge";
 import SessionSummary from "@/components/SessionSummary";
-import { speakAsNova } from "@/lib/elevenlabs";
+import { speakAsNova, stopCurrentAudio } from "@/lib/elevenlabs";
 import { generateSessionCelebration } from "@/lib/gemini";
 import { TargetSound } from "@/lib/wordBanks";
 import { semanticData } from "@/lib/semanticData";
@@ -240,6 +240,8 @@ export default function SoundHuntPage() {
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [index, phase]);
+
+    useEffect(() => () => { stopCurrentAudio(); }, []);
 
     if (!words.length) return (
         <main className="min-h-screen flex items-center justify-center">
