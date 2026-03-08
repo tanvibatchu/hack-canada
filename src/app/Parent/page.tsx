@@ -9,6 +9,7 @@ import {
 
 import ModeSwitcher from "@/components/ModeSwitcher";
 import ChangeUserButton from "@/components/ChangeUserButton";
+import ProfileMenu from "@/components/ProfileMenu";
 import Link from "next/link";
 // ─── THEME ───────────────────────────────────────────────────────────────────
 
@@ -354,7 +355,7 @@ function ExerciseBreakdown({ sessions, loading, onSelect }: { sessions: SessionD
 
 // ─── TOP BAR ─────────────────────────────────────────────────────────────────
 
-function TopBar({ onPrint }: { onPrint: () => void }) {
+function TopBar({ onPrint, onOpenProfile }: { onPrint: () => void, onOpenProfile: () => void }) {
   return (
     <header style={{
       background: COLORS.white,
@@ -396,6 +397,16 @@ function TopBar({ onPrint }: { onPrint: () => void }) {
         }} onMouseEnter={e => e.currentTarget.style.background = COLORS.parchment}
           onMouseLeave={e => e.currentTarget.style.background = COLORS.white}>
           Share Data
+        </button>
+        <button onClick={onOpenProfile} style={{
+          background: COLORS.white, border: `1px solid ${COLORS.borderLight}`,
+          color: COLORS.amethyst, borderRadius: 8, padding: "8px 16px",
+          fontSize: "0.9rem", fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8, transition: "background 0.1s",
+          fontFamily: "inherit",
+        }} onMouseEnter={e => e.currentTarget.style.background = COLORS.parchment}
+          onMouseLeave={e => e.currentTarget.style.background = COLORS.white}>
+          ⚙️ Settings
         </button>
         <ModeSwitcher />
       </div>
@@ -620,6 +631,7 @@ export default function ParentDashboard() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [activeModal, setActiveModal] = useState<ExerciseType | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -686,8 +698,12 @@ export default function ParentDashboard() {
         />
       )}
 
+      {showSettings && (
+        <ProfileMenu onClose={() => { setShowSettings(false); window.location.reload(); }} />
+      )}
+
       <div style={{ minHeight: "100vh", paddingBottom: 64 }}>
-        <TopBar onPrint={() => window.print()} />
+        <TopBar onPrint={() => window.print()} onOpenProfile={() => setShowSettings(true)} />
         <main style={{ maxWidth: 1024, margin: "0 auto", padding: "32px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
           <div style={{ animation: "fadeUp 0.3s ease both" }}><ChildProfileCard profile={profile} loading={loadingProfile} /></div>
 
