@@ -1,4 +1,6 @@
 # ArtiCue
+Demo Video: https://youtu.be/nndhehSQGhc
+
 ### Closing the gap in Canadian speech therapy.
 
 > Because Canadian kids can't wait 3 years for a speech therapist.
